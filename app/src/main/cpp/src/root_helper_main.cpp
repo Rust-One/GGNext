@@ -4,6 +4,7 @@
 #include "mem_engine/proc_io.hpp"
 #include "mem_engine/search_engine.hpp"
 #include "mem_engine/debugger.hpp"
+#include "mem_engine/remote_alloc.hpp"
 
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -756,6 +757,20 @@ int main(int argc, char** argv) {
             std::lock_guard<std::mutex> outLk(stdoutMutex);
             std::printf("OK %s\n", json.c_str());
             std::fflush(stdout);
+        } else if (cmd == "BP_SET_REG") {
+            int32_t bpId = 0, tid = 0, isFp = 0;
+            std::string pcHex, regName, hexVal;
+            iss >> bpId >> tid >> pcHex >> isFp >> regName >> hexVal;
+            uint64_t hitPc = std::strtoull(pcHex.c_str(), nullptr, 16);
+            std::string errMsg;
+            bool ok = bpManager.modifyRegister(bpId, tid, hitPc, regName, hexVal, isFp != 0, &errMsg);
+            std::lock_guard<std::mutex> outLk(stdoutMutex);
+            if (ok) {
+                std::printf("OK\n");
+            } else {
+                std::printf("ERR %s\n", errMsg.empty() ? "SET_REG_FAILED" : errMsg.c_str());
+            }
+            std::fflush(stdout);
         } else if (cmd == "SET_SPEED_CFG") {
             int targetPid = io.pid();
             double rate = 1.0;
@@ -777,21 +792,26 @@ int main(int argc, char** argv) {
             std::lock_guard<std::mutex> outLk(stdoutMutex);
             std::printf("%s\n", ok ? "OK" : "ERR SPEED_CFG");
             std::fflush(stdout);
-        } else if (cmd == "ALLOC_PAGE_LOCAL") {
+        } else if (cmd == "ALLOC_PAGE" || cmd == "ALLOC_PAGE_LOCAL") {
             std::string hintHex;
             size_t len = 4096;
             int prot = PROT_READ | PROT_WRITE;
             iss >> hintHex >> len >> prot;
             uint64_t hint = std::strtoull(hintHex.c_str(), nullptr, 16);
-            long pageSize = ::sysconf(_SC_PAGESIZE);
-            if (pageSize <= 0) pageSize = 4096;
-            if (len == 0) len = static_cast<size_t>(pageSize);
-            void* p = ::mmap(reinterpret_cast<void*>(static_cast<uintptr_t>(hint)), len, prot, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            auto allocRes = mem_engine::allocateTargetProcessPage(io.pid(), hint, len, prot);
+            if (allocRes.ok) {
+                scanner.refreshRegions();
+            }
             std::lock_guard<std::mutex> outLk(stdoutMutex);
-            if (p != MAP_FAILED) {
-                std::printf("OK %llx\n", static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(p)));
+            if (allocRes.ok) {
+                std::printf(
+                    "OK %llx %zu %d\n",
+                    static_cast<unsigned long long>(allocRes.address),
+                    allocRes.size,
+                    allocRes.actualProt
+                );
             } else {
-                std::printf("ERR %d\n", errno);
+                std::printf("ERR %s\n", allocRes.error.empty() ? "ALLOC_FAILED" : allocRes.error.c_str());
             }
             std::fflush(stdout);
         } else {

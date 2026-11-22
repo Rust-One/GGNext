@@ -5,7 +5,9 @@
 #include "mem_engine/search_engine.hpp"
 #include "mem_engine/asm_engine.hpp"
 #include "mem_engine/debugger.hpp"
+#include "mem_engine/remote_alloc.hpp"
 #include "xdl.h"
+#include <dlfcn.h>
 #include <memory>
 #include <mutex>
 #include <cstring>
@@ -15,13 +17,38 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-extern "C" {
-int ggnext_agent_install_hooks();
-void ggnext_agent_set_speed(float rate);
-float ggnext_agent_get_speed();
-uint64_t ggnext_agent_alloc_page(uint64_t hintAddr, size_t size, int prot);
-int ggnext_agent_is_hook_active();
+namespace {
+struct AgentApi {
+    using SetSpeedFn   = void (*)(float);
+    using GetSpeedFn   = float (*)();
+    using AllocPageFn  = uint64_t (*)(uint64_t, size_t, int);
+    using IsActiveFn   = int (*)();
+
+    void* handle = nullptr;
+    SetSpeedFn setSpeed = nullptr;
+    GetSpeedFn getSpeed = nullptr;
+    AllocPageFn allocPage = nullptr;
+    IsActiveFn isActive = nullptr;
+    bool initialized = false;
+};
+
+AgentApi& lazyAgentApi() {
+    static std::mutex mtx;
+    static AgentApi api;
+    std::lock_guard<std::mutex> lk(mtx);
+    if (!api.initialized) {
+        api.initialized = true;
+        api.handle = ::dlopen("libggnext_agent.so", RTLD_LAZY);
+        if (api.handle) {
+            api.setSpeed  = reinterpret_cast<AgentApi::SetSpeedFn>(::dlsym(api.handle, "ggnext_agent_set_speed"));
+            api.getSpeed  = reinterpret_cast<AgentApi::GetSpeedFn>(::dlsym(api.handle, "ggnext_agent_get_speed"));
+            api.allocPage = reinterpret_cast<AgentApi::AllocPageFn>(::dlsym(api.handle, "ggnext_agent_alloc_page"));
+            api.isActive  = reinterpret_cast<AgentApi::IsActiveFn>(::dlsym(api.handle, "ggnext_agent_is_hook_active"));
+        }
+    }
+    return api;
 }
+} // namespace
 
 #if __has_include(<jni.h>)
 #include <jni.h>
@@ -1178,6 +1205,77 @@ Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeBpSnapshotJson(
     return env->NewStringUTF(json.c_str());
 }
 
+JNIEXPORT jstring JNICALL
+Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeBpSetReg(
+    JNIEnv* env,
+    jclass /*clazz*/,
+    jlong handle,
+    jint bpId,
+    jint tid,
+    jlong hitPc,
+    jstring regNameJstr,
+    jstring hexValJstr,
+    jboolean isFp
+) {
+    auto* session = reinterpret_cast<NativeEngineSession*>(handle);
+    if (!session || !session->debugger || !regNameJstr || !hexValJstr) {
+        return env->NewStringUTF("ERR:无效参数");
+    }
+    const char* rn = env->GetStringUTFChars(regNameJstr, nullptr);
+    const char* hv = env->GetStringUTFChars(hexValJstr, nullptr);
+    std::string regName = rn ? rn : "";
+    std::string hexVal = hv ? hv : "";
+    if (rn) env->ReleaseStringUTFChars(regNameJstr, rn);
+    if (hv) env->ReleaseStringUTFChars(hexValJstr, hv);
+
+    std::string err;
+    bool ok = session->debugger->modifyRegister(
+        static_cast<int32_t>(bpId),
+        static_cast<int32_t>(tid),
+        static_cast<uint64_t>(hitPc),
+        regName,
+        hexVal,
+        isFp == JNI_TRUE,
+        &err
+    );
+    if (ok) return env->NewStringUTF("OK");
+    std::string out = "ERR:" + (err.empty() ? "寄存器写回失败" : err);
+    return env->NewStringUTF(out.c_str());
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeAllocTargetPage(
+    JNIEnv* env,
+    jclass /*clazz*/,
+    jlong handle,
+    jint pid,
+    jlong hintAddr,
+    jint size,
+    jint prot
+) {
+    auto* session = reinterpret_cast<NativeEngineSession*>(handle);
+    int targetPid = (pid > 0) ? static_cast<int>(pid) : (session ? session->io.pid() : 0);
+    auto res = mem_engine::allocateTargetProcessPage(
+        targetPid,
+        static_cast<uint64_t>(hintAddr),
+        static_cast<size_t>(size > 0 ? size : 4096),
+        static_cast<int>(prot)
+    );
+    if (res.ok && session) {
+        std::lock_guard<std::mutex> lk(session->mtx);
+        session->scanner->refreshRegions();
+        session->refreshAllRegions();
+    }
+    if (res.ok) {
+        std::ostringstream oss;
+        oss << "OK:" << std::hex << res.address << ":" << std::dec << res.size << ":" << res.actualProt;
+        std::string s = oss.str();
+        return env->NewStringUTF(s.c_str());
+    }
+    std::string out = "ERR:" + (res.error.empty() ? "ALLOC_FAILED" : res.error);
+    return env->NewStringUTF(out.c_str());
+}
+
 // ============================================================================
 // Dynamic Keystone & Capstone Assembly Engine JNI Bridge
 // ============================================================================
@@ -1336,8 +1434,10 @@ Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeAgentSetSpeed(
     jclass /*clazz*/,
     jfloat rate
 ) {
-    ggnext_agent_set_speed(static_cast<float>(rate));
-    return ggnext_agent_is_hook_active() != 0 ? JNI_TRUE : JNI_FALSE;
+    auto& api = lazyAgentApi();
+    if (!api.setSpeed) return JNI_FALSE;
+    api.setSpeed(static_cast<float>(rate));
+    return (api.isActive && api.isActive() != 0) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jfloat JNICALL
@@ -1345,7 +1445,8 @@ Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeAgentGetSpeed(
     JNIEnv* /*env*/,
     jclass /*clazz*/
 ) {
-    return static_cast<jfloat>(ggnext_agent_get_speed());
+    auto& api = lazyAgentApi();
+    return api.getSpeed ? static_cast<jfloat>(api.getSpeed()) : 1.0f;
 }
 
 JNIEXPORT jlong JNICALL
@@ -1356,7 +1457,9 @@ Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeAgentAllocPage(
     jint size,
     jint prot
 ) {
-    return static_cast<jlong>(ggnext_agent_alloc_page(
+    auto& api = lazyAgentApi();
+    if (!api.allocPage) return 0;
+    return static_cast<jlong>(api.allocPage(
         static_cast<uint64_t>(hintAddr),
         static_cast<size_t>(size > 0 ? size : 4096),
         static_cast<int>(prot)

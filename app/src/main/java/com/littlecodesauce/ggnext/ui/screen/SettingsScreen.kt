@@ -56,6 +56,7 @@ import com.littlecodesauce.ggnext.core.Sheet
 import com.littlecodesauce.ggnext.core.Ui
 import com.littlecodesauce.ggnext.core.WorkMode
 import com.littlecodesauce.ggnext.engine.Formatter
+import com.littlecodesauce.ggnext.model.BpMode
 import com.littlecodesauce.ggnext.ui.components.GgSwitch
 import com.littlecodesauce.ggnext.ui.components.RoseButton
 import com.littlecodesauce.ggnext.ui.components.WavySlider
@@ -143,7 +144,7 @@ fun SettingsScreen(ui: Ui, embedded: Boolean = false) {
                     NavRow(
                         icon = Icons.Rounded.Layers,
                         title = "工具栏顺序与增删",
-                        subtitle = "调整搜索列表 / 保存列表 / 内存页工具栏图标"
+                        subtitle = "调整搜索 / 保存 / 内存 / 调试页工具栏图标"
                     ) {
                         Session.openSheet(Sheet.TOOLBAR_ORDER)
                     }
@@ -243,6 +244,22 @@ fun SettingsScreen(ui: Ui, embedded: Boolean = false) {
                         subtitle = "当前：${ui.speedText}"
                     ) {
                         Session.openSheet(Sheet.SPEED)
+                    }
+
+                    RowDivider()
+
+                    val bpBackend = Session.breakpointBackendMode(ui)
+                    NavRow(
+                        icon = Icons.Rounded.BugReport,
+                        title = "断点调试后端",
+                        subtitle = if (bpBackend == BpMode.PERF) {
+                            "Perf 硬件断点 · 点击切换为 Ptrace"
+                        } else {
+                            "Ptrace 断点 · 点击切换为 Perf"
+                        }
+                    ) {
+                        val next = if (bpBackend == BpMode.PERF) BpMode.PTRACE else BpMode.PERF
+                        Session.setBreakpointBackendMode(next)
                     }
                 }
             }

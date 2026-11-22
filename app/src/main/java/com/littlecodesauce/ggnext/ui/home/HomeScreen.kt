@@ -1454,6 +1454,15 @@ private fun HomeThanksSubPage(onBack: () -> Unit) {
                 )
             }
 
+            item("thanks_gg") {
+                ThanksCreditCard(
+                    title = "GameGuardian",
+                    tag = "经典内存分析工具先驱",
+                    description = "致敬 Android 平台经典的内存分析与修改工具 GameGuardian。其开创性的搜索语法、联合搜索范式与内存浏览体系，为本项目奠定了重要参考与灵感。",
+                    onClick = { openExternalUrl("https://gameguardian.net") }
+                )
+            }
+
             item("thanks_agg") {
                 ThanksCreditCard(
                     title = "AGameGuardian",
@@ -1463,12 +1472,21 @@ private fun HomeThanksSubPage(onBack: () -> Unit) {
                 )
             }
 
-            item("thanks_gg") {
+            item("thanks_shadowhook") {
                 ThanksCreditCard(
-                    title = "GameGuardian",
-                    tag = "经典内存分析工具先驱",
-                    description = "致敬 Android 平台经典的内存分析与修改工具 GameGuardian。其开创性的搜索语法、联合搜索范式与内存浏览体系，为本项目奠定了重要参考与灵感。",
-                    onClick = { openExternalUrl("https://gameguardian.net") }
+                    title = "ShadowHook",
+                    tag = "Android Inline Hook 框架",
+                    description = "感谢字节跳动开源的 Android inline hook 库 ShadowHook，为本项目底层函数拦截能力提供了稳定可靠的实现基础。",
+                    onClick = { openExternalUrl("https://github.com/bytedance/android-shadowhook") }
+                )
+            }
+
+            item("thanks_xdl") {
+                ThanksCreditCard(
+                    title = "xDL",
+                    tag = "增强型 Android DL 库",
+                    description = "感谢开源项目 xDL，为本项目在 Android 高版本环境下解析动态库与符号地址提供了高效可靠的底层支持。",
+                    onClick = { openExternalUrl("https://github.com/hexhacking/xDL") }
                 )
             }
 

@@ -13,9 +13,9 @@ enum class BpType(val code: Int, val label: String, val shortLabel: String) {
     }
 }
 
-enum class BpMode(val code: Int, val label: String, val badge: String, val desc: String) {
-    PERF(0, "Perf 硬件断点", "perf", "基于内核 perf_event_open，低侵入无停顿（需 Root 与内核支持）"),
-    PTRACE(1, "Ptrace 断点", "pwatch", "基于 ptrace 硬件调试寄存器，支持完整浮点寄存器与免 Root 同 UID 模式");
+enum class BpMode(val code: Int, val label: String, val desc: String) {
+    PERF(0, "Perf 硬件断点", "基于内核 perf_event_open，低侵入无停顿（需 Root 与内核支持）"),
+    PTRACE(1, "Ptrace 断点", "基于 ptrace 硬件调试寄存器，支持完整浮点寄存器与免 Root 同 UID 模式");
 
     companion object {
         fun fromCode(code: Int): BpMode = entries.firstOrNull { it.code == code } ?: PERF
@@ -186,10 +186,12 @@ object BpSnapshotParser {
                                     }
                                 }
                             }
+                            val rawHitType = BpType.fromCode(ho.optInt("hitType", 3))
+                            val resolvedHitType = classifyDisasmHitType(disasm, rawHitType)
                             add(
                                 BpHitGroup(
                                     pc = pc,
-                                    hitType = BpType.fromCode(ho.optInt("hitType", 3)),
+                                    hitType = resolvedHitType,
                                     tid = ho.optInt("tid", 0),
                                     arch = arch,
                                     moduleName = ho.optString("module", "[anon]"),
@@ -230,5 +232,66 @@ object BpSnapshotParser {
             }
             out
         }.getOrDefault(emptyList())
+    }
+
+    /**
+     * 根据反汇编指令实际语义判定操作方向（只读 / 只写 / 执行），
+     * 避免直接展示断点配置类型（如“读写”）掩盖真实内存访问性质。
+     */
+    fun classifyDisasmHitType(disasmText: String, fallback: BpType): BpType {
+        if (fallback == BpType.EXEC) return BpType.EXEC
+        val trimmed = disasmText.trim()
+        if (trimmed.isEmpty()) return fallback
+        val spaceIdx = trimmed.indexOfFirst { it == ' ' || it == '\t' }
+        val mnemonic = (if (spaceIdx > 0) trimmed.substring(0, spaceIdx) else trimmed).uppercase()
+        val operands = if (spaceIdx > 0) trimmed.substring(spaceIdx + 1).trim() else ""
+
+        // ARM64 / ARM32 / Thumb store instructions -> WRITE
+        if (mnemonic.startsWith("STR") || mnemonic.startsWith("STP") || mnemonic.startsWith("STUR") ||
+            mnemonic.startsWith("STXR") || mnemonic.startsWith("STLR") || mnemonic.startsWith("STXP") ||
+            mnemonic.startsWith("STNP") || mnemonic.startsWith("STTR") || mnemonic.startsWith("STLUR") ||
+            mnemonic.startsWith("ST1") || mnemonic.startsWith("ST2") || mnemonic.startsWith("ST3") ||
+            mnemonic.startsWith("ST4") || mnemonic.startsWith("STM") || mnemonic.startsWith("VSTR") ||
+            mnemonic.startsWith("VSTM") || mnemonic.startsWith("VST") || mnemonic == "PUSH" ||
+            mnemonic.startsWith("STADD") || mnemonic.startsWith("STSET") || mnemonic.startsWith("STCLR") ||
+            mnemonic.startsWith("STEOR") || mnemonic.startsWith("SWP") || mnemonic.startsWith("CAS") ||
+            mnemonic.startsWith("LDADD") || mnemonic.startsWith("LDSET") || mnemonic.startsWith("LDCLR") ||
+            mnemonic.startsWith("LDEOR") || mnemonic.startsWith("STOS")
+        ) {
+            return BpType.WRITE
+        }
+        // ARM64 / ARM32 / Thumb load instructions -> READ
+        if (mnemonic.startsWith("LDR") || mnemonic.startsWith("LDP") || mnemonic.startsWith("LDUR") ||
+            mnemonic.startsWith("LDXR") || mnemonic.startsWith("LDAR") || mnemonic.startsWith("LDXP") ||
+            mnemonic.startsWith("LDNP") || mnemonic.startsWith("LDTR") || mnemonic.startsWith("LDAUR") ||
+            mnemonic.startsWith("LD1") || mnemonic.startsWith("LD2") || mnemonic.startsWith("LD3") ||
+            mnemonic.startsWith("LD4") || mnemonic.startsWith("LDM") || mnemonic.startsWith("VLDR") ||
+            mnemonic.startsWith("VLDM") || mnemonic.startsWith("VLD") || mnemonic == "POP" ||
+            mnemonic.startsWith("PRFM") || mnemonic.startsWith("LODS")
+        ) {
+            return BpType.READ
+        }
+        // x86 / x86_64 Intel syntax: destination is first operand; memory bracket `[...]` in dst -> WRITE, in src -> READ
+        val commaIdx = operands.indexOf(',')
+        if (commaIdx > 0) {
+            val dst = operands.substring(0, commaIdx)
+            val src = operands.substring(commaIdx + 1)
+            val dstMem = dst.contains('[')
+            val srcMem = src.contains('[')
+            if (dstMem && !srcMem) {
+                return if (mnemonic == "CMP" || mnemonic == "TEST") BpType.READ else BpType.WRITE
+            }
+            if (srcMem && !dstMem) {
+                return BpType.READ
+            }
+        } else if (operands.contains('[')) {
+            if (mnemonic == "INC" || mnemonic == "DEC" || mnemonic == "NEG" || mnemonic == "NOT" ||
+                mnemonic.startsWith("SET")
+            ) {
+                return BpType.WRITE
+            }
+            return BpType.READ
+        }
+        return fallback
     }
 }

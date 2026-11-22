@@ -26,6 +26,7 @@ import com.littlecodesauce.ggnext.model.MemoryRegion
 import com.littlecodesauce.ggnext.model.TargetProcess
 import com.littlecodesauce.ggnext.model.ValueType
 import com.littlecodesauce.ggnext.ui.model.DEFAULT_PINNED_TOOLS
+import com.littlecodesauce.ggnext.ui.model.DEFAULT_TOOLS_DEBUG
 import com.littlecodesauce.ggnext.ui.model.DEFAULT_TOOLS_MEMORY
 import com.littlecodesauce.ggnext.ui.model.DEFAULT_TOOLS_SAVED
 import com.littlecodesauce.ggnext.ui.model.DEFAULT_TOOLS_SEARCH
@@ -335,7 +336,8 @@ data class Ui(
             NextTab.SAVED_LIST -> savedSelectedCount
             NextTab.MEMORY -> memorySelectedCount
             NextTab.SEARCH_LIST -> searchSelectedCount
-            NextTab.SETTINGS, NextTab.DEBUG -> 0
+            NextTab.DEBUG -> selectedBpIds.size
+            NextTab.SETTINGS -> 0
         }
 
     fun isSearchItemSelected(item: MemoryItem): Boolean =
@@ -355,7 +357,8 @@ data class Ui(
                 NextTab.SEARCH_LIST -> DEFAULT_TOOLS_SEARCH
                 NextTab.SAVED_LIST -> DEFAULT_TOOLS_SAVED
                 NextTab.MEMORY -> DEFAULT_TOOLS_MEMORY
-                NextTab.SETTINGS, NextTab.DEBUG -> emptyList()
+                NextTab.DEBUG -> DEFAULT_TOOLS_DEBUG
+                NextTab.SETTINGS -> emptyList()
             }
             val pinned = currentPinnedTools.toSet()
             return base.filter { it !in pinned }
@@ -721,7 +724,7 @@ object Session {
 
                 val restoredTools = st.tools.toMutableMap()
                 val restoredPinned = st.pinnedTools.toMutableMap()
-                listOf(NextTab.SEARCH_LIST, NextTab.SAVED_LIST, NextTab.MEMORY).forEach { t ->
+                listOf(NextTab.SEARCH_LIST, NextTab.SAVED_LIST, NextTab.MEMORY, NextTab.DEBUG).forEach { t ->
                     parseToolOrderCsv(merged["toolbar_order_${t.name}"])?.let { restoredTools[t] = it }
                     parseToolOrderCsv(merged["pinned_tools_${t.name}"])?.let { restoredPinned[t] = it }
                 }
@@ -2469,7 +2472,8 @@ object Session {
                 NextTab.SAVED_LIST -> if (s.saved.isEmpty()) s else s.copy(savedSelection = s.savedSelection.selectAll())
                 NextTab.MEMORY -> if (s.memoryRows.isEmpty()) s else s.copy(memorySelection = s.memorySelection.selectAll())
                 NextTab.SEARCH_LIST -> if (s.results.isEmpty()) s else s.copy(searchSelection = s.searchSelection.selectAll())
-                NextTab.SETTINGS, NextTab.DEBUG -> s
+                NextTab.DEBUG -> s.copy(selectedBpIds = s.breakpoints.map { it.id }.toSet())
+                NextTab.SETTINGS -> s
             }
         }
     }
@@ -2480,7 +2484,11 @@ object Session {
                 NextTab.SAVED_LIST -> if (s.saved.isEmpty()) s else s.copy(savedSelection = s.savedSelection.invert())
                 NextTab.MEMORY -> if (s.memoryRows.isEmpty()) s else s.copy(memorySelection = s.memorySelection.invert())
                 NextTab.SEARCH_LIST -> if (s.results.isEmpty()) s else s.copy(searchSelection = s.searchSelection.invert())
-                NextTab.SETTINGS, NextTab.DEBUG -> s
+                NextTab.DEBUG -> {
+                    val all = s.breakpoints.map { it.id }.toSet()
+                    s.copy(selectedBpIds = all - s.selectedBpIds)
+                }
+                NextTab.SETTINGS -> s
             }
         }
     }
@@ -2491,7 +2499,8 @@ object Session {
                 NextTab.SAVED_LIST -> s.copy(savedSelection = SelectionState.EMPTY)
                 NextTab.MEMORY -> s.copy(memorySelection = SelectionState.EMPTY)
                 NextTab.SEARCH_LIST -> s.copy(searchSelection = SelectionState.EMPTY)
-                NextTab.SETTINGS, NextTab.DEBUG -> s
+                NextTab.DEBUG -> s.copy(selectedBpIds = emptySet())
+                NextTab.SETTINGS -> s
             }
         }
     }
@@ -3492,14 +3501,21 @@ object Session {
         }
     }
 
-    /** 真实 mmap 匿名内存页分配 */
+    /** 目标进程真实匿名内存页分配 */
     fun allocateMemoryPage(address: Long, read: Boolean, write: Boolean, exec: Boolean) {
         scope.launch {
             _ui.update { it.copy(busy = true, busyText = "正在分配内存页") }
-            val (allocAddr, msg) = withContext(Dispatchers.IO) {
-                engine.allocatePage(address, read, write, exec)
+            val (allocAddr, msg, refreshedRegions) = withContext(Dispatchers.IO) {
+                val (a, m) = engine.allocatePage(address, read, write, exec)
+                val regs = if (a != 0L) aggregate(engine.regions()) else null
+                Triple(a, m, regs)
             }
-            _ui.update { it.copy(busy = false) }
+            _ui.update { st ->
+                st.copy(
+                    busy = false,
+                    regions = refreshedRegions ?: st.regions
+                )
+            }
             toast(msg)
             if (allocAddr != 0L) {
                 closeAllSheets()
@@ -3562,7 +3578,8 @@ object Session {
         NextTab.SEARCH_LIST -> DEFAULT_TOOLS_SEARCH
         NextTab.SAVED_LIST -> DEFAULT_TOOLS_SAVED
         NextTab.MEMORY -> DEFAULT_TOOLS_MEMORY
-        NextTab.SETTINGS, NextTab.DEBUG -> emptyList()
+        NextTab.DEBUG -> DEFAULT_TOOLS_DEBUG
+        NextTab.SETTINGS -> emptyList()
     }
 
     fun moveTool(tab: NextTab, from: Int, to: Int) {
@@ -3590,7 +3607,8 @@ object Session {
             NextTab.SEARCH_LIST -> DEFAULT_TOOLS_SEARCH
             NextTab.SAVED_LIST -> DEFAULT_TOOLS_SAVED
             NextTab.MEMORY -> DEFAULT_TOOLS_MEMORY
-            NextTab.SETTINGS, NextTab.DEBUG -> emptyList()
+            NextTab.DEBUG -> DEFAULT_TOOLS_DEBUG
+            NextTab.SETTINGS -> emptyList()
         }
         _ui.update {
             it.copy(
@@ -3812,6 +3830,47 @@ object Session {
     }
 
     // ============ 硬件断点调试器 (Perf / Ptrace) ============
+
+    fun breakpointBackendMode(st: Ui = _ui.value): BpMode {
+        return when (st.settings["bp_backend"]) {
+            "perf" -> BpMode.PERF
+            "ptrace" -> BpMode.PTRACE
+            else -> if (st.workMode == WorkMode.ROOT && st.hasRootPermission) BpMode.PERF else BpMode.PTRACE
+        }
+    }
+
+    fun setBreakpointBackendMode(mode: BpMode) {
+        val raw = if (mode == BpMode.PERF) "perf" else "ptrace"
+        setSetting("bp_backend", raw)
+        toast("已切换断点后端为 ${mode.label}")
+    }
+
+    fun modifyBreakpointRegister(
+        bpId: Int,
+        tid: Int,
+        hitPc: Long,
+        regName: String,
+        hexValue: String,
+        isFp: Boolean,
+        onDone: (Boolean, String) -> Unit
+    ) {
+        scope.launch {
+            val (ok, err, snap) = withContext(Dispatchers.IO) {
+                val (wOk, wErr) = engine.bpSetRegister(bpId, tid, hitPc, regName, hexValue, isFp)
+                val nextSnap = if (wOk) engine.bpSnapshot() else null
+                Triple(wOk, wErr, nextSnap)
+            }
+            if (ok && snap != null) {
+                _ui.update { it.copy(breakpoints = snap) }
+                toast("已修改寄存器 $regName = ${hexValue.uppercase()}")
+                onDone(true, "")
+            } else {
+                val msg = err.ifBlank { "寄存器写回失败" }
+                toast(msg)
+                onDone(false, msg)
+            }
+        }
+    }
 
     fun defaultBreakpointAddressHex(): String {
         val st = _ui.value

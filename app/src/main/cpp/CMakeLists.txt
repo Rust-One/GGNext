@@ -92,6 +92,7 @@ set(MEMENGINE_CORE_SOURCES
     src/search_engine.cpp
     src/asm_engine.cpp
     src/debugger.cpp
+    src/remote_alloc.cpp
 )
 
 add_library(mem_engine_core STATIC ${MEMENGINE_CORE_SOURCES})
@@ -110,23 +111,24 @@ if(MEMENGINE_BUILD_JNI)
         src/ggnext_agent.cpp
     )
     target_compile_options(ggnext_agent PRIVATE ${MEMENGINE_CXX_FLAGS})
+    target_link_options(ggnext_agent PRIVATE -Wl,--exclude-libs,ALL -Wl,--no-undefined)
     target_link_libraries(ggnext_agent PRIVATE xdl Threads::Threads dl)
     if(HAS_SHADOWHOOK)
         target_link_libraries(ggnext_agent PRIVATE shadowhook)
     endif()
 
     # Main JNI library (libmem_engine_jni.so)
+    # Linked cleanly against c++_static without DT_NEEDED on libggnext_agent.so
+    # to avoid leaking/importing libc++ symbols across shared libraries.
     add_library(mem_engine_jni SHARED
         jni/mem_engine_jni.cpp
     )
     target_compile_options(mem_engine_jni PRIVATE ${MEMENGINE_CXX_FLAGS})
+    target_link_options(mem_engine_jni PRIVATE -Wl,--exclude-libs,ALL -Wl,--no-undefined)
     target_include_directories(mem_engine_jni PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     )
-    target_link_libraries(mem_engine_jni PUBLIC mem_engine_core xdl ggnext_agent Threads::Threads dl)
-    if(HAS_SHADOWHOOK)
-        target_link_libraries(mem_engine_jni PUBLIC shadowhook)
-    endif()
+    target_link_libraries(mem_engine_jni PUBLIC mem_engine_core xdl Threads::Threads dl)
 
     # Root helper daemon executable (packaged as libmem_engine_root.so)
     add_executable(mem_engine_root

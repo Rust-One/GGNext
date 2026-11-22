@@ -3325,7 +3325,7 @@ fun DumpSheet(ui: Ui) {
 @Composable
 fun AllocateSheet(ui: Ui) {
     var allowRead by remember { mutableStateOf(true) }
-    var allowWrite by remember { mutableStateOf(false) }
+    var allowWrite by remember { mutableStateOf(true) }
     var allowExec by remember { mutableStateOf(true) }
     var addrTf by remember { mutableStateOf(TextFieldValue("0", TextRange(0, 1))) }
     var showRegionPicker by remember { mutableStateOf(false) }
@@ -3523,7 +3523,7 @@ fun FileSheet(ui: Ui) {
     }
     NextSheetCard(
         title = sheetTitle,
-        subtitle = "输入文件路径或点击右侧「浏览」选择，点击下方按钮执行对应读写操作",
+        subtitle = "选择或输入列表文件路径",
         onDismiss = Session::popSheet
     ) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
@@ -3600,7 +3600,7 @@ fun SpeedSheet(ui: Ui) {
     var speed by remember(ui.speedMultiplier) { mutableStateOf(ui.speedMultiplier) }
     NextSheetCard(
         title = "游戏变速",
-        subtitle = ui.target?.let { "目标：[${it.pid}] ${it.label} · ShadowHook + xDL" } ?: "ShadowHook + xDL 时间倍速",
+        subtitle = ui.target?.let { "目标：[${it.pid}] ${it.label}" } ?: "调整时间倍率",
         onDismiss = Session::popSheet
     ) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
@@ -3646,9 +3646,9 @@ fun SpeedSheet(ui: Ui) {
                     )
                     Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(tr("启用 wrap 属性预加载 Agent (Root)"), color = Rose.Text, fontSize = fsp(12.5f))
+                        Text(tr("启用重启预加载 (Root)"), color = Rose.Text, fontSize = fsp(12.5f))
                         Text(
-                            tr("自动配置 wrap.<包名> 预加载 libggnext_agent.so，重启目标应用后实时响应倍率"),
+                            tr("重启目标应用后生效"),
                             color = Rose.TextDim,
                             fontSize = fsp(10.5f),
                             lineHeight = fsp(14.5f)

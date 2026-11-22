@@ -1,9 +1,12 @@
 package com.littlecodesauce.ggnext.ui.screen
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,20 +22,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.BugReport
-import androidx.compose.material.icons.rounded.CleaningServices
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteOutline
-import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,18 +39,20 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.littlecodesauce.ggnext.core.Session
 import com.littlecodesauce.ggnext.core.Sheet
 import com.littlecodesauce.ggnext.core.Ui
@@ -62,9 +63,10 @@ import com.littlecodesauce.ggnext.model.BpRegEntry
 import com.littlecodesauce.ggnext.model.BpSession
 import com.littlecodesauce.ggnext.model.BpType
 import com.littlecodesauce.ggnext.ui.components.GgCheckBox
-import com.littlecodesauce.ggnext.ui.components.Hairline
 import com.littlecodesauce.ggnext.ui.components.RoseButton
 import com.littlecodesauce.ggnext.ui.components.clickableWithTooltip
+import com.littlecodesauce.ggnext.ui.components.dialogEnter
+import com.littlecodesauce.ggnext.ui.components.dialogExit
 import com.littlecodesauce.ggnext.ui.components.expandEnter
 import com.littlecodesauce.ggnext.ui.components.expandExit
 import com.littlecodesauce.ggnext.ui.components.fsp
@@ -72,11 +74,21 @@ import com.littlecodesauce.ggnext.ui.components.monoStyle
 import com.littlecodesauce.ggnext.ui.components.tr
 import com.littlecodesauce.ggnext.ui.theme.Rose
 
+private data class EditingRegTarget(
+    val bpId: Int,
+    val tid: Int,
+    val hitPc: Long,
+    val regName: String,
+    val hexValue: String,
+    val isFp: Boolean,
+    val numericValue: Long
+)
+
 /**
  * 硬件断点调试器主界面（NextTab.DEBUG）：
- * - 顶部紧凑工具栏（新增断点、暂停/恢复全部、清空命中、删除、全选、反选、取消选择、活动数量徽章）
+ * - 复用顶部统一 ToolBar（支持长按拖拽排序与工具自定义）
  * - 折叠式断点会话卡片，嵌套按 PC 聚合的命中指令列表
- * - 展开命中项内直接内联展示寄存器面板（[ X | 浮点 ] 双栏 Hex）与调用链回溯（点击跳转内存）
+ * - 展开命中项内直接内联展示寄存器面板（点击任意寄存器可修改并写回）与调用链回溯
  */
 @Composable
 fun DebugScreen(ui: Ui) {
@@ -86,25 +98,9 @@ fun DebugScreen(ui: Ui) {
 
     val expandedBps = remember { mutableStateMapOf<Int, Boolean>() }
     val expandedHits = remember { mutableStateMapOf<String, Boolean>() }
-    val activeCount = remember(ui.breakpoints) { ui.breakpoints.count { it.isActive } }
-    val anyActive = activeCount > 0
+    var editingReg by remember { mutableStateOf<EditingRegTarget?>(null) }
 
-    Column(Modifier.fillMaxSize()) {
-        DebugActionBar(
-            activeCount = activeCount,
-            anyActive = anyActive,
-            hasBreakpoints = ui.breakpoints.isNotEmpty(),
-            hasSelection = ui.selectedBpIds.isNotEmpty(),
-            onAdd = { Session.openSheet(Sheet.BREAKPOINT) },
-            onTogglePauseAll = { Session.toggleAllBreakpointsPause() },
-            onClearHits = { Session.clearBreakpointHits(0) },
-            onDeleteSelected = { Session.removeSelectedBreakpoints() },
-            onSelectAll = { Session.selectAllBreakpoints() },
-            onInvert = { Session.invertBpSelection() },
-            onClearSelection = { Session.clearBpSelection() }
-        )
-        Hairline()
-
+    Box(Modifier.fillMaxSize()) {
         if (ui.breakpoints.isEmpty()) {
             DebugEmptyState(
                 attached = ui.attachedOk,
@@ -132,134 +128,27 @@ fun DebugScreen(ui: Ui) {
                         onDelete = { Session.removeBreakpoint(bp.id) },
                         onToggleHit = { key ->
                             expandedHits[key] = !(expandedHits[key] ?: false)
-                        }
+                        },
+                        onEditReg = { target -> editingReg = target }
                     )
                 }
             }
         }
-    }
-}
 
-@Composable
-private fun DebugActionBar(
-    activeCount: Int,
-    anyActive: Boolean,
-    hasBreakpoints: Boolean,
-    hasSelection: Boolean,
-    onAdd: () -> Unit,
-    onTogglePauseAll: () -> Unit,
-    onClearHits: () -> Unit,
-    onDeleteSelected: () -> Unit,
-    onSelectAll: () -> Unit,
-    onInvert: () -> Unit,
-    onClearSelection: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        DebugBarIconButton(
-            icon = Icons.Rounded.Add,
-            tooltip = "添加断点",
-            tint = Rose.Primary,
-            enabled = true,
-            onClick = onAdd
-        )
-        DebugBarIconButton(
-            icon = if (anyActive) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-            tooltip = if (anyActive) "暂停全部断点" else "恢复全部断点",
-            tint = if (hasBreakpoints) Rose.Text else Rose.TextDim,
-            enabled = hasBreakpoints,
-            onClick = onTogglePauseAll
-        )
-        DebugBarIconButton(
-            icon = Icons.Rounded.CleaningServices,
-            tooltip = "清空命中记录",
-            tint = if (hasBreakpoints) Rose.Text else Rose.TextDim,
-            enabled = hasBreakpoints,
-            onClick = onClearHits
-        )
-        DebugBarIconButton(
-            icon = Icons.Rounded.DeleteOutline,
-            tooltip = if (hasSelection) "删除选中断点" else "删除全部断点",
-            tint = if (hasBreakpoints) Rose.Red else Rose.TextDim,
-            enabled = hasBreakpoints,
-            onClick = onDeleteSelected
-        )
-        DebugBarIconButton(
-            icon = Icons.Rounded.DoneAll,
-            tooltip = "全选断点",
-            tint = if (hasBreakpoints) Rose.Text else Rose.TextDim,
-            enabled = hasBreakpoints,
-            onClick = onSelectAll
-        )
-        DebugBarIconButton(
-            icon = Icons.Rounded.SwapHoriz,
-            tooltip = "反选断点",
-            tint = if (hasBreakpoints) Rose.Text else Rose.TextDim,
-            enabled = hasBreakpoints,
-            onClick = onInvert
-        )
-        DebugBarIconButton(
-            icon = Icons.Rounded.Close,
-            tooltip = "取消选择",
-            tint = if (hasSelection) Rose.Text else Rose.TextDim,
-            enabled = hasSelection,
-            onClick = onClearSelection
-        )
-
-        Spacer(Modifier.weight(1f))
-
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(10.dp))
-                .background(
-                    if (activeCount > 0) Rose.Primary.copy(alpha = if (Rose.IsDark) 0.22f else 0.16f)
-                    else Rose.CardHigh
-                )
-                .border(
-                    width = 0.8.dp,
-                    color = if (activeCount > 0) Rose.Primary.copy(alpha = 0.45f) else Rose.Divider,
-                    shape = RoundedCornerShape(10.dp)
-                )
-                .padding(horizontal = 10.dp, vertical = 5.dp),
-            contentAlignment = Alignment.Center
+        AnimatedVisibility(
+            visible = editingReg != null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize().zIndex(20f)
         ) {
-            Text(
-                text = "${tr("活动")} $activeCount",
-                color = if (activeCount > 0) Rose.Primary else Rose.TextSecond,
-                fontSize = fsp(12f),
-                fontWeight = FontWeight.SemiBold
-            )
+            val target = editingReg
+            if (target != null) {
+                RegisterEditModal(
+                    target = target,
+                    onDismiss = { editingReg = null }
+                )
+            }
         }
-    }
-}
-
-@Composable
-private fun DebugBarIconButton(
-    icon: ImageVector,
-    tooltip: String,
-    tint: Color,
-    enabled: Boolean,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .size(34.dp)
-            .clip(RoundedCornerShape(9.dp))
-            .background(Rose.CardHigh.copy(alpha = if (enabled) 0.72f else 0.35f))
-            .clickableWithTooltip(tooltip = tr(tooltip), enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = tr(tooltip),
-            tint = if (enabled) tint else tint.copy(alpha = 0.4f),
-            modifier = Modifier.size(19.dp)
-        )
     }
 }
 
@@ -273,7 +162,8 @@ private fun BreakpointSessionCard(
     onToggleExpand: () -> Unit,
     onTogglePause: () -> Unit,
     onDelete: () -> Unit,
-    onToggleHit: (String) -> Unit
+    onToggleHit: (String) -> Unit,
+    onEditReg: (EditingRegTarget) -> Unit
 ) {
     val bgOpacity = com.littlecodesauce.ggnext.ui.theme.LocalUiMetrics.current.bgOpacity.coerceIn(0.25f, 1.0f)
     val typeAccent = bpTypeColor(bp.type)
@@ -381,11 +271,6 @@ private fun BreakpointSessionCard(
 
         Spacer(Modifier.height(4.dp))
 
-        val tidPreview = if (bp.sampleTids.isNotEmpty()) {
-            "  TID ${bp.sampleTids.take(2).joinToString(",")}${if (bp.sampleTids.size > 2) "…" else ""}"
-        } else ""
-        val backendTag = if (bp.tracerPid > 0) "${bp.mode.badge} ${bp.tracerPid}" else bp.mode.badge
-
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -399,7 +284,7 @@ private fun BreakpointSessionCard(
                 fontWeight = FontWeight.Medium
             )
             Text(
-                text = "  ${tr("命中")} ${bp.totalHits}  ${tr("目标")} ${bp.pid}  $backendTag  ${tr("线程")} ${bp.attachedThreads}/${bp.totalThreads}$tidPreview",
+                text = "  ${tr("命中")} ${bp.totalHits}  ${tr("目标")} ${bp.pid}  ${tr("线程")} ${bp.attachedThreads}/${bp.totalThreads}",
                 style = monoStyle(11, Rose.TextSecond),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -445,11 +330,12 @@ private fun BreakpointSessionCard(
                         val hitKey = "${bp.id}_${hit.pc}_${hit.hitType.code}"
                         val isHitOpen = expandedHits[hitKey] ?: (idx == 0 && bp.hits.size == 1)
                         BpHitGroupRow(
-                            pid = bp.pid,
+                            bpId = bp.id,
                             hitIndex = idx + 1,
                             hit = hit,
                             expanded = isHitOpen,
-                            onToggle = { onToggleHit(hitKey) }
+                            onToggle = { onToggleHit(hitKey) },
+                            onEditReg = onEditReg
                         )
                     }
                 }
@@ -460,11 +346,12 @@ private fun BreakpointSessionCard(
 
 @Composable
 private fun BpHitGroupRow(
-    pid: Int,
+    bpId: Int,
     hitIndex: Int,
     hit: BpHitGroup,
     expanded: Boolean,
-    onToggle: () -> Unit
+    onToggle: () -> Unit,
+    onEditReg: (EditingRegTarget) -> Unit
 ) {
     val clipboard = LocalClipboardManager.current
     var regTab by remember(hit.pc) { mutableIntStateOf(0) } // 0 = X (GPR), 1 = 浮点 (FP/SIMD)
@@ -544,15 +431,14 @@ private fun BpHitGroupRow(
                             text = "PC ${hit.pcHex}",
                             style = monoStyle(11.5f.toInt(), Rose.Text)
                         )
-                        val disasmLabel = hit.disasmText.ifBlank {
-                            if (hit.insnHex.isNotEmpty()) "RAW ${hit.insnHex}" else "--"
+                        if (hit.disasmText.isNotBlank()) {
+                            Text(
+                                text = hit.disasmText,
+                                style = monoStyle(12.5f.toInt(), Rose.Primary, weight = FontWeight.SemiBold),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
-                        Text(
-                            text = disasmLabel,
-                            style = monoStyle(12.5f.toInt(), Rose.Primary, weight = FontWeight.SemiBold),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
                     }
                     Box(
                         modifier = Modifier
@@ -581,12 +467,9 @@ private fun BpHitGroupRow(
                     }
                 }
 
-                // 元数据行：目标 · TID · 架构 · PC · SP · LR
+                // 精简元数据行：仅保留 PC / SP / LR
                 val metaLine = buildString {
-                    append(tr("目标")).append(' ').append(pid)
-                    append("   TID ").append(hit.tid)
-                    append("   ").append(tr("架构")).append(' ').append(hit.arch)
-                    append("\nPC ").append(hit.pcHex)
+                    append("PC ").append(hit.pcHex)
                     if (hit.sp != 0L) append("   SP ").append(hit.spHex)
                     if (hit.lr != 0L) append("   LR ").append(hit.lrHex)
                 }
@@ -596,14 +479,25 @@ private fun BpHitGroupRow(
                     lineHeight = fsp(16f)
                 )
 
-                // 寄存器面板（自带 X / 浮点 切换）
+                // 寄存器面板（自带 X / 浮点 切换，点击任意寄存器可修改）
                 if (hit.gprs.isNotEmpty() || hit.fprs.isNotEmpty()) {
-                    Text(
-                        text = tr("寄存器"),
-                        color = Rose.TextSecond,
-                        fontSize = fsp(11.5f),
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = tr("寄存器"),
+                            color = Rose.TextSecond,
+                            fontSize = fsp(11.5f),
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = tr("点击修改"),
+                            color = Rose.TextDim,
+                            fontSize = fsp(10.5f)
+                        )
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         RegTabPill(label = "X", selected = regTab == 0) { regTab = 0 }
                         RegTabPill(
@@ -615,23 +509,34 @@ private fun BpHitGroupRow(
                         RegisterGprGrid(
                             regs = hit.gprs,
                             onTapReg = { reg ->
-                                if (reg.value != 0L) {
-                                    clipboard.setText(AnnotatedString(reg.hex))
-                                    Session.toast("已复制 ${reg.name} = ${reg.hex}")
-                                }
-                            },
-                            onJumpReg = { reg ->
-                                if (java.lang.Long.compareUnsigned(reg.value, 0x10000L) >= 0) {
-                                    Session.goto(reg.value, recordHistory = true, highlightTarget = true)
-                                }
+                                onEditReg(
+                                    EditingRegTarget(
+                                        bpId = bpId,
+                                        tid = hit.tid,
+                                        hitPc = hit.pc,
+                                        regName = reg.name,
+                                        hexValue = reg.hex,
+                                        isFp = false,
+                                        numericValue = reg.value
+                                    )
+                                )
                             }
                         )
                     } else {
                         RegisterFprList(
                             fprs = hit.fprs,
                             onTapFpr = { fp ->
-                                clipboard.setText(AnnotatedString(fp.hexValue))
-                                Session.toast("已复制 ${fp.name} = ${fp.hexValue}")
+                                onEditReg(
+                                    EditingRegTarget(
+                                        bpId = bpId,
+                                        tid = hit.tid,
+                                        hitPc = hit.pc,
+                                        regName = fp.name,
+                                        hexValue = fp.hexValue,
+                                        isFp = true,
+                                        numericValue = 0L
+                                    )
+                                )
                             }
                         )
                     }
@@ -698,8 +603,7 @@ private fun RegTabPill(label: String, selected: Boolean, onClick: () -> Unit) {
 @Composable
 private fun RegisterGprGrid(
     regs: List<BpRegEntry>,
-    onTapReg: (BpRegEntry) -> Unit,
-    onJumpReg: (BpRegEntry) -> Unit
+    onTapReg: (BpRegEntry) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
         regs.chunked(2).forEach { pair ->
@@ -714,7 +618,7 @@ private fun RegisterGprGrid(
                             .weight(1f)
                             .clip(RoundedCornerShape(6.dp))
                             .clickable(onClick = { onTapReg(reg) })
-                            .padding(horizontal = 4.dp, vertical = 2.5.dp),
+                            .padding(horizontal = 4.dp, vertical = 3.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
@@ -727,17 +631,256 @@ private fun RegisterGprGrid(
                             style = monoStyle(11, valColor),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable(
-                                    enabled = java.lang.Long.compareUnsigned(reg.value, 0x10000L) >= 0,
-                                    onClick = { onJumpReg(reg) }
-                                )
+                            modifier = Modifier.weight(1f)
                         )
                     }
                 }
                 if (pair.size == 1) {
                     Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RegisterEditModal(
+    target: EditingRegTarget,
+    onDismiss: () -> Unit
+) {
+    val clipboard = LocalClipboardManager.current
+    // mode: 0 = HEX, 1 = DEC, 2 = F32, 3 = F64
+    var inputMode by remember(target) { mutableIntStateOf(0) }
+    var textValue by remember(target) { mutableStateOf(target.hexValue) }
+    var errorMsg by remember(target) { mutableStateOf("") }
+    var saving by remember(target) { mutableStateOf(false) }
+
+    val formats = remember(target.isFp) {
+        if (target.isFp) listOf(0 to "HEX", 2 to "F32", 3 to "F64")
+        else listOf(0 to "HEX", 1 to "DEC", 2 to "F32", 3 to "F64")
+    }
+
+    fun formatValueForMode(mode: Int): String {
+        val cleanHex = target.hexValue.trim().removePrefix("0x").removePrefix("0X")
+        if (mode == 0) return cleanHex.uppercase()
+        if (target.isFp) {
+            val low16 = if (cleanHex.length >= 16) cleanHex.takeLast(16) else cleanHex.padStart(16, '0')
+            val lowBits = low16.toULongOrNull(16)?.toLong() ?: 0L
+            return when (mode) {
+                2 -> Float.fromBits((lowBits and 0xFFFFFFFFL).toInt()).toString()
+                3 -> Double.fromBits(lowBits).toString()
+                else -> cleanHex.uppercase()
+            }
+        }
+        return when (mode) {
+            1 -> target.numericValue.toString()
+            2 -> Float.fromBits((target.numericValue and 0xFFFFFFFFL).toInt()).toString()
+            3 -> Double.fromBits(target.numericValue).toString()
+            else -> cleanHex.uppercase()
+        }
+    }
+
+    fun resolveHexToWrite(): String? {
+        val raw = textValue.trim()
+        if (raw.isEmpty()) return null
+        return when (inputMode) {
+            0 -> {
+                val hex = raw.removePrefix("0x").removePrefix("0X").removeSuffix("h").removeSuffix("H").uppercase()
+                if (hex.isEmpty() || !hex.all { it in "0123456789ABCDEF" }) return null
+                if (target.isFp) {
+                    if (hex.length > 32) return null
+                    hex.padStart(32, '0')
+                } else {
+                    if (hex.length > 16) return null
+                    hex
+                }
+            }
+            1 -> {
+                val v = raw.toLongOrNull() ?: raw.toULongOrNull()?.toLong() ?: return null
+                java.lang.Long.toUnsignedString(v, 16).uppercase()
+            }
+            2 -> {
+                val f = raw.toFloatOrNull() ?: return null
+                val bits32 = f.toRawBits().toUInt().toString(16).uppercase().padStart(8, '0')
+                if (target.isFp) {
+                    val orig = target.hexValue.padStart(32, '0').take(24)
+                    orig + bits32
+                } else {
+                    bits32
+                }
+            }
+            3 -> {
+                val d = raw.toDoubleOrNull() ?: return null
+                val bits64 = d.toRawBits().toULong().toString(16).uppercase().padStart(16, '0')
+                if (target.isFp) {
+                    val orig = target.hexValue.padStart(32, '0').take(16)
+                    orig + bits64
+                } else {
+                    bits64
+                }
+            }
+            else -> null
+        }
+    }
+
+    val canJump = !target.isFp && java.lang.Long.compareUnsigned(target.numericValue, 0x10000L) >= 0
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Rose.Scrim)
+            .clickable(
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() }
+            ) { if (!saving) onDismiss() },
+        contentAlignment = Alignment.Center
+    ) {
+        AnimatedVisibility(
+            visible = true,
+            enter = dialogEnter(),
+            exit = dialogExit()
+        ) {
+            Column(
+                Modifier
+                    .padding(horizontal = 22.dp)
+                    .fillMaxWidth()
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) {}
+                    .background(Rose.Card, RoundedCornerShape(16.dp))
+                    .border(1.dp, Rose.Divider, RoundedCornerShape(16.dp))
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "${tr("修改寄存器")} ${target.regName}",
+                        color = Rose.Text,
+                        fontSize = fsp(16f),
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(7.dp))
+                            .background(Rose.CardHigh)
+                            .clickable {
+                                clipboard.setText(AnnotatedString(target.hexValue))
+                                Session.toast("已复制 ${target.regName} = ${target.hexValue}")
+                            }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(tr("复制"), color = Rose.TextSecond, fontSize = fsp(11.5f))
+                    }
+                    if (canJump) {
+                        Spacer(Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(7.dp))
+                                .background(Rose.Primary.copy(alpha = 0.16f))
+                                .clickable {
+                                    onDismiss()
+                                    Session.goto(target.numericValue, recordHistory = true, highlightTarget = true)
+                                }
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(tr("转到地址"), color = Rose.Primary, fontSize = fsp(11.5f), fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+
+                // 格式切换：HEX / DEC / F32 / F64
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    formats.forEach { (modeId, label) ->
+                        RegTabPill(label = label, selected = inputMode == modeId) {
+                            inputMode = modeId
+                            textValue = formatValueForMode(modeId)
+                            errorMsg = ""
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Rose.CardHigh)
+                        .border(
+                            width = 1.dp,
+                            color = if (errorMsg.isEmpty()) Rose.Primary.copy(alpha = 0.55f) else Rose.Red,
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (inputMode == 0) {
+                        Text("0x", style = monoStyle(13, Rose.TextDim))
+                        Spacer(Modifier.width(4.dp))
+                    }
+                    BasicTextField(
+                        value = textValue,
+                        onValueChange = {
+                            textValue = it
+                            errorMsg = ""
+                        },
+                        singleLine = true,
+                        textStyle = monoStyle(14, Rose.Text),
+                        cursorBrush = SolidColor(Rose.Primary),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                if (errorMsg.isNotEmpty()) {
+                    Text(
+                        text = errorMsg,
+                        color = Rose.Red,
+                        fontSize = fsp(11.5f),
+                        lineHeight = fsp(15f)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    RoseButton(
+                        label = "取消",
+                        enabled = !saving,
+                        modifier = Modifier.weight(1f).height(38.dp)
+                    ) { onDismiss() }
+                    RoseButton(
+                        label = "写入",
+                        filled = true,
+                        enabled = !saving,
+                        modifier = Modifier.weight(1f).height(38.dp)
+                    ) {
+                        val hexOut = resolveHexToWrite()
+                        if (hexOut == null) {
+                            errorMsg = tr("输入格式无效，请检查数值")
+                            return@RoseButton
+                        }
+                        saving = true
+                        Session.modifyBreakpointRegister(
+                            bpId = target.bpId,
+                            tid = target.tid,
+                            hitPc = target.hitPc,
+                            regName = target.regName,
+                            hexValue = hexOut,
+                            isFp = target.isFp
+                        ) { ok, err ->
+                            saving = false
+                            if (ok) {
+                                onDismiss()
+                            } else {
+                                errorMsg = err.ifBlank { tr("寄存器写回失败") }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -869,7 +1012,7 @@ private fun DebugEmptyState(
             Spacer(Modifier.height(6.dp))
             Text(
                 text = tr(
-                    if (attached) "支持 Perf (Root) 与 Ptrace (支持免 Root) 两种断点模式，命中后自动采集寄存器与调用链回溯"
+                    if (attached) "支持硬件断点监听，命中后自动采集寄存器与调用链回溯"
                     else "请先附加目标进程，然后从内存/搜索列表长按地址或点击上方 + 添加硬件断点"
                 ),
                 color = Rose.TextSecond,

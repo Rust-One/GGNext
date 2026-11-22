@@ -1067,19 +1067,49 @@ object RootMemDaemon {
     }
 
     @Synchronized
+    fun bpSetRegister(
+        bpId: Int,
+        tid: Int,
+        hitPc: Long,
+        regName: String,
+        hexValue: String,
+        isFp: Boolean
+    ): Pair<Boolean, String> {
+        val pcHex = java.lang.Long.toUnsignedString(hitPc, 16)
+        val fpFlag = if (isFp) 1 else 0
+        val cleanReg = regName.trim().replace(" ", "")
+        val cleanVal = hexValue.trim().replace(" ", "")
+        val resp = sendCommandLocked("BP_SET_REG $bpId $tid $pcHex $fpFlag $cleanReg $cleanVal", isScan = false)
+            ?: return false to "守护进程未响应"
+        if (resp.startsWith("OK")) return true to ""
+        return false to resp.removePrefix("ERR ").trim().ifEmpty { "写回寄存器失败" }
+    }
+
+    @Synchronized
     fun setSpeedConfig(pid: Int, rate: Float): Boolean {
         val resp = sendCommandLocked("SET_SPEED_CFG $pid ${formatDouble(rate.toDouble())}", isScan = false) ?: return false
         return resp.startsWith("OK")
     }
 
     @Synchronized
-    fun allocPageLocal(hintAddr: Long, size: Int, prot: Int): Long {
+    fun allocTargetPage(hintAddr: Long, size: Int, prot: Int): Pair<Long, String> {
         val addrHex = java.lang.Long.toUnsignedString(hintAddr, 16)
-        val resp = sendCommandLocked("ALLOC_PAGE_LOCAL $addrHex $size $prot", isScan = false) ?: return 0L
-        if (!resp.startsWith("OK ")) return 0L
-        val hex = resp.removePrefix("OK ").trim()
-        return parseHexLong(hex, 0, hex.length) ?: 0L
+        val resp = sendCommandLocked("ALLOC_PAGE $addrHex $size $prot", isScan = false)
+            ?: return 0L to "守护进程未响应"
+        if (!resp.startsWith("OK ")) {
+            val err = resp.removePrefix("ERR ").trim().ifEmpty { "目标进程分配内存页失败" }
+            return 0L to err
+        }
+        val parts = resp.removePrefix("OK ").trim().split(' ')
+        val hex = parts.firstOrNull().orEmpty()
+        val addr = parseHexLong(hex, 0, hex.length) ?: 0L
+        if (addr == 0L) return 0L to "返回了无效的分配地址"
+        return addr to ""
     }
+
+    @Synchronized
+    fun allocPageLocal(hintAddr: Long, size: Int, prot: Int): Long =
+        allocTargetPage(hintAddr, size, prot).first
 
     private val HEX_CHARS = "0123456789ABCDEF".toCharArray()
 

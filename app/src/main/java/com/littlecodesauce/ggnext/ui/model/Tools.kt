@@ -4,13 +4,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.Undo
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.BugReport
+import androidx.compose.material.icons.rounded.CleaningServices
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.FilterAlt
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Upload
@@ -54,6 +57,10 @@ enum class ToolId(val label: String) {
     DUMP("导出内存"),
     BREAKPOINT("硬件断点"),
     WRITE_ASM("写入汇编"),
+    BP_ADD("添加断点"),
+    BP_PAUSE_ALL("暂停/恢复断点"),
+    BP_CLEAR_HITS("清空命中"),
+    BP_DELETE("删除断点"),
     EXEC_SCRIPT("执行脚本"),
     MENU("工具栏顺序")
 }
@@ -90,6 +97,10 @@ fun toolIcon(id: ToolId): ImageVector = when (id) {
     ToolId.DUMP -> Icons.Rounded.Folder
     ToolId.BREAKPOINT -> Icons.Rounded.BugReport
     ToolId.WRITE_ASM -> Icons.Rounded.Code
+    ToolId.BP_ADD -> Icons.Rounded.Add
+    ToolId.BP_PAUSE_ALL -> Icons.Rounded.Pause
+    ToolId.BP_CLEAR_HITS -> Icons.Rounded.CleaningServices
+    ToolId.BP_DELETE -> Icons.Rounded.Delete
     ToolId.EXEC_SCRIPT -> GgIcons.AngleBrackets
     ToolId.MENU -> GgIcons.MenuThreeLines
 }
@@ -163,6 +174,17 @@ val DEFAULT_TOOLS_MEMORY = listOf(
     ToolId.FORMAT
 )
 
+/** 调试页默认流动工具栏（与搜索/保存/内存页共用统一工具栏与选择图标） */
+val DEFAULT_TOOLS_DEBUG = listOf(
+    ToolId.BP_ADD,
+    ToolId.BP_PAUSE_ALL,
+    ToolId.BP_CLEAR_HITS,
+    ToolId.BP_DELETE,
+    ToolId.SELECT_ALL,
+    ToolId.INVERT,
+    ToolId.CLEAR_SEL
+)
+
 val ALL_TOOLS = ToolId.entries.toList()
 
 /**
@@ -172,6 +194,7 @@ fun isToolEnabled(id: ToolId, tab: NextTab, ui: Ui): Boolean {
     val hasSearchItems = ui.rawResults.isNotEmpty() || ui.results.isNotEmpty()
     val hasSavedItems = ui.saved.isNotEmpty()
     val hasMemoryRows = ui.memoryRows.isNotEmpty()
+    val hasBreakpoints = ui.breakpoints.isNotEmpty()
 
     return when (id) {
         // 始终可用的全局功能
@@ -209,12 +232,17 @@ fun isToolEnabled(id: ToolId, tab: NextTab, ui: Ui): Boolean {
             }
         }
 
+        // 调试页断点操作
+        ToolId.BP_ADD -> true
+        ToolId.BP_PAUSE_ALL, ToolId.BP_CLEAR_HITS, ToolId.BP_DELETE -> hasBreakpoints
+
         // 全选 / 反选 / 清除选择
         ToolId.SELECT_ALL, ToolId.INVERT, ToolId.CLEAR_SEL -> {
             when (tab) {
                 NextTab.SEARCH_LIST -> hasSearchItems
                 NextTab.SAVED_LIST -> hasSavedItems
                 NextTab.MEMORY -> hasMemoryRows
+                NextTab.DEBUG -> hasBreakpoints
                 else -> false
             }
         }

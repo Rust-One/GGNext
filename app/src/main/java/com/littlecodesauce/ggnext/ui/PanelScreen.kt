@@ -122,7 +122,20 @@ fun PanelScreen(
 
     val workArea: @Composable (Modifier) -> Unit = { mod ->
         Column(modifier = mod) {
-            if (ui.tab != NextTab.SETTINGS && ui.tab != NextTab.DEBUG) {
+            ProcessBar(
+                target = ui.target,
+                paused = ui.processPaused,
+                countText = ui.countButtonText,
+                busy = ui.busy,
+                onPick = { Session.openSheet(Sheet.PROCESS) },
+                onCountClick = { Session.openSheet(Sheet.FILTER) },
+                onRefresh = {
+                    Session.refreshLiveValues(manual = true)
+                },
+                onPause = { Session.toggleProcessPause() }
+            )
+            Hairline()
+            if (ui.tab != NextTab.SETTINGS) {
                 ToolBar(
                     flowingTools = ui.flowingTools,
                     pinnedTools = ui.currentPinnedTools,
@@ -151,21 +164,8 @@ fun PanelScreen(
                         Session.movePinnedTool(ui.tab, from, to)
                     }
                 )
+                Hairline()
             }
-            Hairline()
-            ProcessBar(
-                target = ui.target,
-                paused = ui.processPaused,
-                countText = ui.countButtonText,
-                busy = ui.busy,
-                onPick = { Session.openSheet(Sheet.PROCESS) },
-                onCountClick = { Session.openSheet(Sheet.FILTER) },
-                onRefresh = {
-                    Session.refreshLiveValues(manual = true)
-                },
-                onPause = { Session.toggleProcessPause() }
-            )
-            Hairline()
             AnimatedVisibility(visible = ui.busy) {
                 com.littlecodesauce.ggnext.ui.components.InlineSearchProgressBar(ui = ui)
             }
@@ -399,6 +399,10 @@ private fun handleTool(
         ToolId.FORWARD -> Session.memoryForward()
         ToolId.SPEED -> Session.openSheet(Sheet.SPEED)
         ToolId.EXEC_SCRIPT -> Session.openSheet(Sheet.SCRIPT)
+        ToolId.BP_ADD -> Session.openSheet(Sheet.BREAKPOINT)
+        ToolId.BP_PAUSE_ALL -> Session.toggleAllBreakpointsPause()
+        ToolId.BP_CLEAR_HITS -> Session.clearBreakpointHits(0)
+        ToolId.BP_DELETE -> Session.removeSelectedBreakpoints()
         ToolId.MENU -> Session.openSheet(Sheet.TOOLBAR_ORDER)
     }
 }

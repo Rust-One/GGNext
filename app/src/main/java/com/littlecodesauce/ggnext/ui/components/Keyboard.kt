@@ -11,10 +11,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -75,13 +78,20 @@ fun BuiltInKeyboard(
     }
     val corner = LocalUiMetrics.current.dialogCorner.dp
 
-    Column(
-        modifier
-            .fillMaxWidth()
-            .background(Rose.CardHigh, RoundedCornerShape(corner))
-            .border(1.dp, Rose.Divider, RoundedCornerShape(corner))
-            .padding(gap)
-    ) {
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val fillAvailableHeight = constraints.hasFixedHeight && constraints.maxHeight < Int.MAX_VALUE
+        val rowModifier: androidx.compose.foundation.layout.ColumnScope.() -> Modifier = {
+            if (fillAvailableHeight) Modifier.weight(1f) else Modifier
+        }
+        val effectiveHeight = if (fillAvailableHeight) Dp.Unspecified else rowHeight
+
+        Column(
+            Modifier
+                .then(if (fillAvailableHeight) Modifier.fillMaxSize() else Modifier.fillMaxWidth())
+                .background(Rose.CardHigh, RoundedCornerShape(corner))
+                .border(1.dp, Rose.Divider, RoundedCornerShape(corner))
+                .padding(gap)
+        ) {
         // Bug 7 优化：点击历史按钮直接在键盘上方展开快捷历史列表，不关闭当前正在编辑或搜索的界面
         AnimatedVisibility(showHistoryTray, enter = expandEnter(), exit = expandExit()) {
             val historyList = com.littlecodesauce.ggnext.core.Session.ui.collectAsState().value.history
@@ -144,66 +154,68 @@ fun BuiltInKeyboard(
         }
         if (!symbolMode) {
             // ==================== 主键盘模式（数字 / 十六进制，第4行右为 fx） ====================
-            KeyRow(gap) {
+            KeyRow(gap, modifier = rowModifier()) {
                 listOf("1", "2", "3", "4", "5", ":").forEach { c ->
-                    CharKey(c, Modifier.weight(1f), rowHeight) {
+                    CharKey(c, Modifier.weight(1f), effectiveHeight) {
                         insert(value, c, onValueChange)
                     }
                 }
-                IconKey(GgIcons.BackspaceLeft, "退格删除", Modifier.weight(1f), rowHeight, tint = Rose.Text) {
+                IconKey(GgIcons.BackspaceLeft, "退格删除", Modifier.weight(1f), effectiveHeight, tint = Rose.Text) {
                     onValueChange(backspace(value))
                 }
             }
-            KeyRow(gap) {
+            KeyRow(gap, modifier = rowModifier()) {
                 listOf("6", "7", "8", "9", "0", ";").forEach { c ->
-                    CharKey(c, Modifier.weight(1f), rowHeight) {
+                    CharKey(c, Modifier.weight(1f), effectiveHeight) {
                         insert(value, c, onValueChange)
                     }
                 }
-                IconKey(GgIcons.DeleteRight, "删除光标后字符", Modifier.weight(1f), rowHeight, tint = Rose.Text) {
+                IconKey(GgIcons.DeleteRight, "删除光标后字符", Modifier.weight(1f), effectiveHeight, tint = Rose.Text) {
                     onValueChange(deleteForward(value))
                 }
             }
-            KeyRow(gap) {
+            KeyRow(gap, modifier = rowModifier()) {
                 listOf("A", "B", "C", "D", "E", "F").forEach { c ->
-                    CharKey(c, Modifier.weight(1f), rowHeight) {
+                    CharKey(c, Modifier.weight(1f), effectiveHeight) {
                         insert(value, c, onValueChange)
                     }
                 }
-                IconKey(GgIcons.SelectAll, "全选输入内容", Modifier.weight(1f), rowHeight, tint = Rose.Text) {
+                IconKey(GgIcons.SelectAll, "全选输入内容", Modifier.weight(1f), effectiveHeight, tint = Rose.Text) {
                     onValueChange(value.copy(selection = TextRange(0, value.text.length)))
                 }
             }
-            KeyRow(gap) {
+            KeyRow(gap, modifier = rowModifier()) {
                 listOf("Q", "h", "r", "W", "X", "~").forEach { c ->
-                    CharKey(c, Modifier.weight(1f), rowHeight) {
+                    CharKey(c, Modifier.weight(1f), effectiveHeight) {
                         insert(value, c, onValueChange)
                     }
                 }
                 CharKey(
                     label = "fx",
                     modifier = Modifier.weight(1f),
-                    height = rowHeight,
+                    height = effectiveHeight,
                     accent = Rose.ChipSelected,
                     italic = true,
                     onClick = { symbolMode = true }
                 )
             }
-            KeyRow(gap, lastRow = true) {
-                CharKey(",", Modifier.weight(1f), rowHeight) { insert(value, ",", onValueChange) }
-                CharKey(".", Modifier.weight(1f), rowHeight) { insert(value, ".", onValueChange) }
-                CharKey("-", Modifier.weight(1f), rowHeight) { insert(value, "-", onValueChange) }
-                CharKey("←", Modifier.weight(1f), rowHeight) { onValueChange(moveCursor(value, -1)) }
-                CharKey("→", Modifier.weight(1f), rowHeight) { onValueChange(moveCursor(value, 1)) }
-                IconKey(Icons.Rounded.History, "输入历史记录", Modifier.weight(1f), rowHeight, tint = if (showHistoryTray) Rose.Primary else Rose.Text, onClick = { showHistoryTray = !showHistoryTray })
+            KeyRow(gap, lastRow = true, modifier = rowModifier()) {
+                CharKey(",", Modifier.weight(1f), effectiveHeight) { insert(value, ",", onValueChange) }
+                CharKey(".", Modifier.weight(1f), effectiveHeight) { insert(value, ".", onValueChange) }
+                CharKey("-", Modifier.weight(1f), effectiveHeight) { insert(value, "-", onValueChange) }
+                CharKey("←", Modifier.weight(1f), effectiveHeight) { onValueChange(moveCursor(value, -1)) }
+                CharKey("→", Modifier.weight(1f), effectiveHeight) { onValueChange(moveCursor(value, 1)) }
+                IconKey(Icons.Rounded.History, "输入历史记录", Modifier.weight(1f), effectiveHeight, tint = if (showHistoryTray) Rose.Primary else Rose.Text, onClick = { showHistoryTray = !showHistoryTray })
                 IconKey(
                     icon = GgIcons.CollapseVertical,
                     desc = "缩放/收起键盘",
                     modifier = Modifier.weight(1f),
-                    height = rowHeight,
+                    height = effectiveHeight,
                     tint = Rose.Text
                 ) {
-                    if (!compactRows) {
+                    if (fillAvailableHeight) {
+                        onDismiss()
+                    } else if (!compactRows) {
                         compactRows = true
                     } else {
                         compactRows = false
@@ -213,64 +225,65 @@ fun BuiltInKeyboard(
             }
         } else {
             // ==================== 符号/表达式键盘模式（fx 变为 123） ====================
-            KeyRow(gap) {
+            KeyRow(gap, modifier = rowModifier()) {
                 listOf("=", "+", "-", "&", "(", ")").forEach { c ->
-                    CharKey(c, Modifier.weight(1f), rowHeight) {
+                    CharKey(c, Modifier.weight(1f), effectiveHeight) {
                         insert(value, c, onValueChange)
                     }
                 }
-                IconKey(GgIcons.BackspaceLeft, "退格删除", Modifier.weight(1f), rowHeight, tint = Rose.Text) {
+                IconKey(GgIcons.BackspaceLeft, "退格删除", Modifier.weight(1f), effectiveHeight, tint = Rose.Text) {
                     onValueChange(backspace(value))
                 }
             }
-            KeyRow(gap) {
+            KeyRow(gap, modifier = rowModifier()) {
                 listOf(".", "*", "/", "|", "<", ">").forEach { c ->
-                    CharKey(c, Modifier.weight(1f), rowHeight) {
+                    CharKey(c, Modifier.weight(1f), effectiveHeight) {
                         insert(value, c, onValueChange)
                     }
                 }
-                IconKey(GgIcons.DeleteRight, "删除光标后字符 / 清空", Modifier.weight(1f), rowHeight, tint = Rose.Text) {
+                IconKey(GgIcons.DeleteRight, "删除光标后字符 / 清空", Modifier.weight(1f), effectiveHeight, tint = Rose.Text) {
                     onValueChange(deleteForward(value))
                 }
             }
-            KeyRow(gap) {
-                CharKey("~", Modifier.weight(1f), rowHeight) { insert(value, "~", onValueChange) }
-                CharKey("^", Modifier.weight(1f), rowHeight) { insert(value, "^", onValueChange) }
-                CharKey("%", Modifier.weight(1f), rowHeight) { insert(value, "%", onValueChange) }
-                CharKey(tr("空格"), Modifier.weight(1f), rowHeight) { insert(value, " ", onValueChange) }
-                CharKey(";", Modifier.weight(1f), rowHeight) { insert(value, ";", onValueChange) }
-                CharKey("'", Modifier.weight(1f), rowHeight) { insert(value, "'", onValueChange) }
-                IconKey(Icons.Rounded.History, "输入历史记录", Modifier.weight(1f), rowHeight, tint = if (showHistoryTray) Rose.Primary else Rose.Text, onClick = { showHistoryTray = !showHistoryTray })
+            KeyRow(gap, modifier = rowModifier()) {
+                CharKey("~", Modifier.weight(1f), effectiveHeight) { insert(value, "~", onValueChange) }
+                CharKey("^", Modifier.weight(1f), effectiveHeight) { insert(value, "^", onValueChange) }
+                CharKey("%", Modifier.weight(1f), effectiveHeight) { insert(value, "%", onValueChange) }
+                CharKey(tr("空格"), Modifier.weight(1f), effectiveHeight) { insert(value, " ", onValueChange) }
+                CharKey(";", Modifier.weight(1f), effectiveHeight) { insert(value, ";", onValueChange) }
+                CharKey("'", Modifier.weight(1f), effectiveHeight) { insert(value, "'", onValueChange) }
+                IconKey(Icons.Rounded.History, "输入历史记录", Modifier.weight(1f), effectiveHeight, tint = if (showHistoryTray) Rose.Primary else Rose.Text, onClick = { showHistoryTray = !showHistoryTray })
             }
-            KeyRow(gap) {
+            KeyRow(gap, modifier = rowModifier()) {
                 listOf("\\", "#", "[", "]", "{", "}").forEach { c ->
-                    CharKey(c, Modifier.weight(1f), rowHeight) {
+                    CharKey(c, Modifier.weight(1f), effectiveHeight) {
                         insert(value, c, onValueChange)
                     }
                 }
                 CharKey(
                     label = "123",
                     modifier = Modifier.weight(1f),
-                    height = rowHeight,
+                    height = effectiveHeight,
                     accent = Rose.ChipSelected,
                     onClick = { symbolMode = false }
                 )
             }
-            KeyRow(gap, lastRow = true) {
-                CharKey(",", Modifier.weight(1.1f), rowHeight) { insert(value, ",", onValueChange) }
-                CharKey(";", Modifier.weight(1.1f), rowHeight) { insert(value, ";", onValueChange) }
-                CharKey("\"", Modifier.weight(1.1f), rowHeight) { insert(value, "\"", onValueChange) }
-                CharKey("<", Modifier.weight(1.2f), rowHeight) { onValueChange(moveCursor(value, -1)) }
-                CharKey(">", Modifier.weight(1.2f), rowHeight) { onValueChange(moveCursor(value, 1)) }
+            KeyRow(gap, lastRow = true, modifier = rowModifier()) {
+                CharKey(",", Modifier.weight(1.1f), effectiveHeight) { insert(value, ",", onValueChange) }
+                CharKey(";", Modifier.weight(1.1f), effectiveHeight) { insert(value, ";", onValueChange) }
+                CharKey("\"", Modifier.weight(1.1f), effectiveHeight) { insert(value, "\"", onValueChange) }
+                CharKey("<", Modifier.weight(1.2f), effectiveHeight) { onValueChange(moveCursor(value, -1)) }
+                CharKey(">", Modifier.weight(1.2f), effectiveHeight) { onValueChange(moveCursor(value, 1)) }
                 IconKey(
                     icon = Icons.Rounded.Close,
                     desc = "收起键盘",
                     modifier = Modifier.weight(1.3f),
-                    height = rowHeight,
+                    height = effectiveHeight,
                     tint = Rose.Text,
                     onClick = onDismiss
                 )
             }
+        }
         }
     }
 }
@@ -279,10 +292,11 @@ fun BuiltInKeyboard(
 private fun KeyRow(
     gap: Dp,
     lastRow: Boolean = false,
+    modifier: Modifier = Modifier,
     content: @Composable RowScope.() -> Unit
 ) {
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .padding(bottom = if (lastRow) 0.dp else gap),
         horizontalArrangement = Arrangement.spacedBy(gap),
@@ -305,7 +319,7 @@ private fun CharKey(
 
     Box(
         modifier
-            .height(height)
+            .then(if (height == Dp.Unspecified) Modifier.fillMaxHeight() else Modifier.height(height))
             .scale(scale)
             .background(bg, RoundedCornerShape(9.dp))
             .clickableWithTooltip(
@@ -339,7 +353,7 @@ private fun IconKey(
 
     Box(
         modifier
-            .height(height)
+            .then(if (height == Dp.Unspecified) Modifier.fillMaxHeight() else Modifier.height(height))
             .scale(scale)
             .background(bg, RoundedCornerShape(9.dp))
             .clickableWithTooltip(

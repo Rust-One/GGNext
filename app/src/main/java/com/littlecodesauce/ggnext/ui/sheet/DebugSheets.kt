@@ -40,10 +40,8 @@ import androidx.compose.ui.unit.dp
 import com.littlecodesauce.ggnext.core.Session
 import com.littlecodesauce.ggnext.core.Sheet
 import com.littlecodesauce.ggnext.core.Ui
-import com.littlecodesauce.ggnext.core.WorkMode
 import com.littlecodesauce.ggnext.engine.AsmEngineManager
 import com.littlecodesauce.ggnext.model.AsmArch
-import com.littlecodesauce.ggnext.model.BpMode
 import com.littlecodesauce.ggnext.model.BpType
 import com.littlecodesauce.ggnext.ui.components.BuiltInKeyboard
 import com.littlecodesauce.ggnext.ui.components.GgTextField
@@ -74,11 +72,6 @@ fun BreakpointSheet(ui: Ui) {
     }
     var selectedType by remember { mutableStateOf(BpType.RW) }
     var selectedSize by remember { mutableIntStateOf(4) }
-    var selectedMode by remember(ui.workMode, ui.hasRootPermission) {
-        mutableStateOf(
-            if (ui.workMode == WorkMode.ROOT && ui.hasRootPermission) BpMode.PERF else BpMode.PTRACE
-        )
-    }
     var captureCallstack by remember { mutableStateOf(true) }
     var showKeyboard by remember { mutableStateOf(true) }
 
@@ -232,56 +225,7 @@ fun BreakpointSheet(ui: Ui) {
                 }
             }
 
-            // 4. 调试模式：Perf (Root) / Ptrace (支持免 Root)
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(tr("调试后端模式"), color = Rose.TextSecond, fontSize = fsp(12f))
-                BpMode.entries.forEach { mode ->
-                    val active = selectedMode == mode
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (active) Rose.ChipSelected.copy(alpha = 0.75f) else Rose.CardHigh)
-                            .border(
-                                width = if (active) 1.2.dp else 0.7.dp,
-                                color = if (active) Rose.Primary else Rose.Divider,
-                                shape = RoundedCornerShape(10.dp)
-                            )
-                            .clickable { selectedMode = mode }
-                            .padding(horizontal = 12.dp, vertical = 9.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = tr(mode.label),
-                                color = if (active) Rose.Primary else Rose.Text,
-                                fontSize = fsp(13f),
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(Rose.Surface.copy(alpha = 0.75f))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = mode.badge,
-                                    style = monoStyle(10, if (active) Rose.Primary else Rose.TextSecond)
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(3.dp))
-                        Text(
-                            text = tr(mode.desc),
-                            color = Rose.TextSecond,
-                            fontSize = fsp(11f),
-                            lineHeight = fsp(15f)
-                        )
-                    }
-                }
-            }
-
-            // 5. 采集回溯与寄存器开关
+            // 4. 采集回溯与寄存器开关
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -334,7 +278,7 @@ fun BreakpointSheet(ui: Ui) {
                         address = addr,
                         type = selectedType,
                         sizeBytes = selectedSize,
-                        mode = selectedMode,
+                        mode = Session.breakpointBackendMode(ui),
                         captureCallstack = captureCallstack
                     )
                 }

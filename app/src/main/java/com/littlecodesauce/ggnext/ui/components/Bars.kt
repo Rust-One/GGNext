@@ -883,8 +883,8 @@ fun InlineSearchProgressBar(ui: com.littlecodesauce.ggnext.core.Ui) {
 
 /**
  * 合并底栏：已选内存类型 + 已选数量
- * - 背景完全透明，悬浮覆盖在列表底部，使后方列表数据清晰可见；
- * - 横屏模式下缩小区块宽度与间距，减少对列表视觉遮挡。
+ * - 竖屏与横屏均限制紧凑宽度，避免下方出现多余空白区域；
+ * - 移除文本模糊阴影，保证字符边缘清晰锐利。
  */
 @Composable
 fun RegionSummaryBar(
@@ -897,31 +897,17 @@ fun RegionSummaryBar(
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE ||
         configuration.screenWidthDp > configuration.screenHeightDp
-    val textShadow = androidx.compose.ui.graphics.Shadow(
-        color = if (Rose.IsDark) Color(0xD9000000) else Color(0xB3FFFFFF),
-        offset = androidx.compose.ui.geometry.Offset(0f, 1f),
-        blurRadius = 4f
-    )
-    val fontSizeSp = fsp(if (isLandscape) 10.5f else 11.2f)
+    val fontSizeSp = fsp(if (isLandscape) 10.5f else 11f)
 
     Row(
         modifier
-            .navigationBarsPadding()
-            .then(
-                if (isLandscape) {
-                    Modifier
-                        .wrapContentWidth()
-                        .widthIn(max = 360.dp)
-                } else {
-                    Modifier
-                        .wrapContentWidth()
-                        .padding(horizontal = 8.dp)
-                }
-            )
-            .height(if (isLandscape) 22.dp else 25.dp)
+            .padding(bottom = 2.dp)
+            .wrapContentWidth()
+            .widthIn(max = if (isLandscape) 340.dp else 260.dp)
+            .height(22.dp)
             .background(Color.Transparent)
             .clickableLongPress(onClick = onClick, onLongPress = onLongPress)
-            .padding(horizontal = if (isLandscape) 8.dp else 12.dp),
+            .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center
     ) {
@@ -929,31 +915,25 @@ fun RegionSummaryBar(
             modifier = Modifier
                 .weight(1f, fill = false)
                 .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(if (isLandscape) 4.dp else 5.5.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (isLandscape) 4.dp else 4.5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             codes.forEach { code ->
                 Text(
                     text = code,
-                    style = androidx.compose.ui.text.TextStyle(
-                        color = regionColor(code),
-                        fontSize = fontSizeSp,
-                        fontWeight = FontWeight.SemiBold,
-                        shadow = textShadow
-                    ),
+                    color = regionColor(code),
+                    fontSize = fontSizeSp,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1
                 )
             }
         }
-        Spacer(Modifier.width(if (isLandscape) 8.dp else 10.dp))
+        Spacer(Modifier.width(if (isLandscape) 6.dp else 8.dp))
         Text(
             text = tr("已选 $checkedItemCount"),
-            style = androidx.compose.ui.text.TextStyle(
-                color = Rose.TextSecond,
-                fontSize = fontSizeSp,
-                fontWeight = FontWeight.Medium,
-                shadow = textShadow
-            ),
+            color = Rose.TextSecond,
+            fontSize = fontSizeSp,
+            fontWeight = FontWeight.Medium,
             maxLines = 1
         )
     }

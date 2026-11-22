@@ -1662,6 +1662,31 @@ class MemoryEngine {
         }
     }
 
+    fun bpSetRegister(
+        bpId: Int,
+        tid: Int,
+        hitPc: Long,
+        regName: String,
+        hexValue: String,
+        isFp: Boolean
+    ): Pair<Boolean, String> {
+        if (!attachedOk || pid <= 0) return false to "请先附加目标进程"
+        if (rootDaemonActive) {
+            return RootMemDaemon.bpSetRegister(bpId, tid, hitPc, regName, hexValue, isFp)
+        }
+        if (!NativeMemBridge.ensureLoaded(appContextRef)) {
+            return false to "原生调试库未加载：${NativeMemBridge.loadError}"
+        }
+        val h = NativeMemBridge.ensureHandle()
+        if (h == 0L) return false to "原生调试引擎未就绪"
+        val resp = NativeMemBridge.nativeBpSetReg(h, bpId, tid, hitPc, regName, hexValue, isFp)
+        return if (resp == "OK") {
+            true to ""
+        } else {
+            false to resp.removePrefix("ERR:").ifBlank { "寄存器写回失败" }
+        }
+    }
+
     // ============ 变速控制 (ShadowHook + xDL Agent) ============
 
     fun applySpeedMultiplier(
@@ -1708,7 +1733,7 @@ class MemoryEngine {
         }
     }
 
-    // ============ 内存页分配 (mmap) ============
+    // ============ 目标进程内存页分配 (跨进程 ptrace SYS_mmap + 权限与写入校验) ============
 
     fun allocatePage(
         hintAddr: Long,
@@ -1717,23 +1742,42 @@ class MemoryEngine {
         exec: Boolean,
         pageSize: Int = 4096
     ): Pair<Long, String> {
+        if (!attachedOk || pid <= 0) {
+            return 0L to "请先附加目标进程"
+        }
         var prot = 0
         if (read) prot = prot or 1  // PROT_READ
         if (write) prot = prot or 2 // PROT_WRITE
         if (exec) prot = prot or 4  // PROT_EXEC
         if (prot == 0) prot = 3     // default RW
 
-        val addr = if (rootDaemonActive && pid != android.os.Process.myPid()) {
-            RootMemDaemon.allocPageLocal(hintAddr, pageSize, prot)
-        } else if (NativeMemBridge.isLoaded) {
-            NativeMemBridge.nativeAgentAllocPage(hintAddr, pageSize, prot)
+        val (addr, err) = if (rootDaemonActive) {
+            RootMemDaemon.allocTargetPage(hintAddr, pageSize, prot)
+        } else if (NativeMemBridge.ensureLoaded(appContextRef)) {
+            val h = NativeMemBridge.ensureHandle()
+            val resp = NativeMemBridge.nativeAllocTargetPage(h, pid, hintAddr, pageSize, prot)
+            if (resp.startsWith("OK:")) {
+                val parts = resp.removePrefix("OK:").split(':')
+                val parsed = parts.firstOrNull()?.toULongOrNull(16)?.toLong() ?: 0L
+                if (parsed != 0L) parsed to "" else 0L to "目标进程返回了无效的分配地址"
+            } else {
+                0L to resp.removePrefix("ERR:").ifBlank { "目标进程内存页分配失败" }
+            }
         } else {
-            0L
+            0L to "原生内存引擎未加载：${NativeMemBridge.loadError}"
         }
-        return if (addr != 0L) {
-            addr to "已分配匿名内存页 0x${java.lang.Long.toUnsignedString(addr, 16).uppercase()}"
-        } else {
-            0L to "内存页分配失败（请检查权限标志或目标地址是否冲突）"
+
+        if (addr != 0L) {
+            // Refresh target process VMA cache so memory browser & region lookup immediately see the new page
+            cachedRegions = emptyList()
+            regions()
+            val rwx = buildString {
+                append(if (read) 'r' else '-')
+                append(if (write) 'w' else '-')
+                append(if (exec) 'x' else '-')
+            }
+            return addr to "已在目标进程分配内存页 0x${java.lang.Long.toUnsignedString(addr, 16).uppercase()} ($rwx)"
         }
+        return 0L to err.ifBlank { "内存页分配失败（请检查权限标志或目标进程状态）" }
     }
 }

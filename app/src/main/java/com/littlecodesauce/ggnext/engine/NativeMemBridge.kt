@@ -1,5 +1,6 @@
 package com.littlecodesauce.ggnext.engine
 
+import android.content.Context
 import com.littlecodesauce.ggnext.data.AppLog
 import com.littlecodesauce.ggnext.model.ValueType
 import java.io.File
@@ -79,13 +80,52 @@ object NativeMemBridge {
         "J"  to (1 shl 14)
     )
 
-    val isLoaded: Boolean = try {
-        System.loadLibrary("mem_engine_jni")
-        AppLog.i("NativeMemBridge", "C++20 libmem_engine_jni.so loaded successfully")
-        true
-    } catch (t: Throwable) {
-        AppLog.w("NativeMemBridge", "Native library unavailable (${t.message}), fallback mode active")
-        false
+    @Volatile
+    private var _isLoaded: Boolean = false
+
+    @Volatile
+    var loadError: String = ""
+        private set
+
+    val isLoaded: Boolean
+        get() = _isLoaded || ensureLoaded(null)
+
+    init {
+        ensureLoaded(null)
+    }
+
+    @Synchronized
+    fun ensureLoaded(context: Context? = null): Boolean {
+        if (_isLoaded) return true
+        var lastErr: Throwable? = null
+        try {
+            System.loadLibrary("mem_engine_jni")
+            _isLoaded = true
+            loadError = ""
+            AppLog.i("NativeMemBridge", "C++20 libmem_engine_jni.so loaded successfully")
+            return true
+        } catch (t: Throwable) {
+            lastErr = t
+            AppLog.w("NativeMemBridge", "System.loadLibrary(mem_engine_jni) failed: ${t.message}")
+        }
+        val nativeDir = context?.applicationInfo?.nativeLibraryDir
+        if (!nativeDir.isNullOrBlank()) {
+            val soFile = File(nativeDir, "libmem_engine_jni.so")
+            if (soFile.exists()) {
+                try {
+                    System.load(soFile.absolutePath)
+                    _isLoaded = true
+                    loadError = ""
+                    AppLog.i("NativeMemBridge", "Loaded libmem_engine_jni.so via ${soFile.absolutePath}")
+                    return true
+                } catch (t2: Throwable) {
+                    lastErr = t2
+                    AppLog.e("NativeMemBridge", "System.load(${soFile.absolutePath}) failed", t2)
+                }
+            }
+        }
+        loadError = lastErr?.let { "${it.javaClass.simpleName}: ${it.message.orEmpty()}" }.orEmpty()
+        return false
     }
 
     @Volatile
@@ -93,7 +133,7 @@ object NativeMemBridge {
 
     @Synchronized
     fun ensureHandle(spillDir: String = "/data/local/tmp"): Long {
-        if (!isLoaded) return 0L
+        if (!ensureLoaded(null)) return 0L
         if (sessionHandle == 0L) {
             val dir = File(spillDir).takeIf { it.exists() && it.canWrite() }?.absolutePath
                 ?: System.getProperty("java.io.tmpdir")
@@ -333,6 +373,24 @@ object NativeMemBridge {
     @JvmStatic external fun nativeBpClearHits(handle: Long, bpId: Int)
     @JvmStatic external fun nativeBpStopAll(handle: Long)
     @JvmStatic external fun nativeBpSnapshotJson(handle: Long): String
+    @JvmStatic external fun nativeBpSetReg(
+        handle: Long,
+        bpId: Int,
+        tid: Int,
+        hitPc: Long,
+        regName: String,
+        hexValue: String,
+        isFp: Boolean
+    ): String
+
+    // Target-process mmap page allocation + /proc/maps & write verification
+    @JvmStatic external fun nativeAllocTargetPage(
+        handle: Long,
+        pid: Int,
+        hintAddr: Long,
+        size: Int,
+        prot: Int
+    ): String
 
     // Dynamic Keystone & Capstone Assembly Engine
     @JvmStatic external fun nativeLoadAsmEngine(libDir: String): String

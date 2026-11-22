@@ -101,6 +101,16 @@ public:
     void clearAllHits();
     void stopAll();
 
+    bool modifyRegister(
+        int32_t bpId,
+        int32_t tid,
+        uint64_t hitPc,
+        const std::string& regName,
+        const std::string& hexValue,
+        bool isFp,
+        std::string* outError = nullptr
+    );
+
     std::vector<BpSessionSnapshot> snapshots() const;
     std::string snapshotsToJson() const;
 

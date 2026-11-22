@@ -458,6 +458,355 @@ bool captureX86Regs(
 }
 #endif
 
+int32_t classifyInsnAccessType(const std::vector<uint8_t>& bytes, int32_t configuredType) {
+    if (configuredType == static_cast<int32_t>(BpType::EXEC)) {
+        return static_cast<int32_t>(BpType::EXEC);
+    }
+    if (configuredType == static_cast<int32_t>(BpType::READ) ||
+        configuredType == static_cast<int32_t>(BpType::WRITE)) {
+        return configuredType;
+    }
+    if (bytes.size() >= 4) {
+#if defined(__aarch64__)
+        uint32_t insn = 0;
+        std::memcpy(&insn, bytes.data(), 4);
+        // Load/Store Exclusive / Ordered (LDXR/STXR/LDAR/STLR/LDXP/STXP)
+        if ((insn & 0x3F000000u) == 0x08000000u) {
+            return ((insn >> 22) & 1u) ? static_cast<int32_t>(BpType::READ)
+                                       : static_cast<int32_t>(BpType::WRITE);
+        }
+        // Load Register (literal)
+        if ((insn & 0x3B000000u) == 0x18000000u) {
+            return static_cast<int32_t>(BpType::READ);
+        }
+        // Load/Store Pair (LDP/STP/LDNP/STNP)
+        if ((insn & 0x3A000000u) == 0x28000000u) {
+            return ((insn >> 22) & 1u) ? static_cast<int32_t>(BpType::READ)
+                                       : static_cast<int32_t>(BpType::WRITE);
+        }
+        // Advanced SIMD Load/Store multiple/single structures (LD1..LD4 / ST1..ST4)
+        if ((insn & 0xBF000000u) == 0x0C000000u || (insn & 0xBF000000u) == 0x0D000000u) {
+            return ((insn >> 22) & 1u) ? static_cast<int32_t>(BpType::READ)
+                                       : static_cast<int32_t>(BpType::WRITE);
+        }
+        // LSE Atomic Memory Ops (LDADD/SWP/CAS/STADD) - modifies target address
+        if ((insn & 0x3B200C00u) == 0x38200000u) {
+            return static_cast<int32_t>(BpType::WRITE);
+        }
+        // Load/Store Register (unscaled, immediate, post/pre-index, register offset, unsigned offset)
+        if ((insn & 0x3B000000u) == 0x38000000u || (insn & 0x3B000000u) == 0x39000000u) {
+            uint32_t v = (insn >> 26) & 1u;
+            uint32_t opc = (insn >> 22) & 3u;
+            if (v == 0u) {
+                return (opc == 0u) ? static_cast<int32_t>(BpType::WRITE)
+                                   : static_cast<int32_t>(BpType::READ);
+            } else {
+                return ((opc & 1u) == 0u) ? static_cast<int32_t>(BpType::WRITE)
+                                          : static_cast<int32_t>(BpType::READ);
+            }
+        }
+#elif defined(__arm__)
+        uint32_t insn = 0;
+        std::memcpy(&insn, bytes.data(), 4);
+        // Single Data Transfer (LDR/STR/LDRB/STRB)
+        if ((insn & 0x0C000000u) == 0x04000000u) {
+            return ((insn >> 20) & 1u) ? static_cast<int32_t>(BpType::READ)
+                                       : static_cast<int32_t>(BpType::WRITE);
+        }
+        // Block Data Transfer (LDM/STM/PUSH/POP)
+        if ((insn & 0x0E000000u) == 0x08000000u) {
+            return ((insn >> 20) & 1u) ? static_cast<int32_t>(BpType::READ)
+                                       : static_cast<int32_t>(BpType::WRITE);
+        }
+        // Halfword & Doubleword Data Transfer (LDRH/STRH/LDRD/STRD)
+        if ((insn & 0x0E000090u) == 0x00000090u) {
+            uint32_t l = (insn >> 20) & 1u;
+            uint32_t sh = (insn >> 5) & 3u;
+            if (l == 1u) return static_cast<int32_t>(BpType::READ);
+            if (sh == 2u) return static_cast<int32_t>(BpType::READ); // LDRD
+            return static_cast<int32_t>(BpType::WRITE);
+        }
+        // VFP VLDR / VSTR
+        if ((insn & 0x0F300E00u) == 0x0D100A00u) return static_cast<int32_t>(BpType::READ);
+        if ((insn & 0x0F300E00u) == 0x0D000A00u) return static_cast<int32_t>(BpType::WRITE);
+#endif
+    }
+    return configuredType;
+}
+
+std::string stripHexPrefix(const std::string& raw) {
+    std::string s;
+    s.reserve(raw.size());
+    for (char c : raw) {
+        if (c == ' ' || c == '\t' || c == '_') continue;
+        s.push_back(c);
+    }
+    if (s.size() >= 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+        s.erase(0, 2);
+    }
+    return s;
+}
+
+bool parseHexU64(const std::string& raw, uint64_t& outVal) {
+    std::string s = stripHexPrefix(raw);
+    if (s.empty() || s.size() > 16) return false;
+    char* end = nullptr;
+    errno = 0;
+    unsigned long long v = std::strtoull(s.c_str(), &end, 16);
+    if (errno != 0 || !end || *end != '\0') return false;
+    outVal = static_cast<uint64_t>(v);
+    return true;
+}
+
+bool parseHexU128(const std::string& raw, uint64_t& outHi, uint64_t& outLo) {
+    std::string s = stripHexPrefix(raw);
+    if (s.empty() || s.size() > 32) return false;
+    for (char c : s) {
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+            return false;
+        }
+    }
+    if (s.size() <= 16) {
+        outHi = 0;
+        return parseHexU64(s, outLo);
+    }
+    std::string hiStr = s.substr(0, s.size() - 16);
+    std::string loStr = s.substr(s.size() - 16);
+    return parseHexU64(hiStr, outHi) && parseHexU64(loStr, outLo);
+}
+
+std::string toLowerCopy(const std::string& in) {
+    std::string s = in;
+    for (char& c : s) {
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    }
+    return s;
+}
+
+bool writeRegToStoppedTid(
+    int tid,
+    const std::string& regNameRaw,
+    const std::string& hexValue,
+    bool isFp,
+    uint64_t& outNumericVal,
+    std::string& outNormHex,
+    std::string& outErr
+) {
+    std::string name = toLowerCopy(regNameRaw);
+    if (!isFp) {
+        uint64_t val = 0;
+        if (!parseHexU64(hexValue, val)) {
+            outErr = "无效的十六进制寄存器值";
+            return false;
+        }
+        outNumericVal = val;
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%llX", static_cast<unsigned long long>(val));
+        outNormHex = buf;
+
+#if defined(__aarch64__)
+        struct user_pt_regs regs{};
+        struct iovec iov{&regs, sizeof(regs)};
+        if (::ptrace(PTRACE_GETREGSET, tid, reinterpret_cast<void*>(static_cast<uintptr_t>(NT_PRSTATUS)), &iov) < 0) {
+            outErr = "读取线程通用寄存器失败 (errno=" + std::to_string(errno) + ")";
+            return false;
+        }
+        bool matched = false;
+        if (name.size() >= 2 && name[0] == 'x') {
+            int idx = std::atoi(name.c_str() + 1);
+            if (idx >= 0 && idx <= 30) {
+                regs.regs[idx] = val;
+                matched = true;
+            }
+        } else if (name == "fp") {
+            regs.regs[29] = val;
+            matched = true;
+        } else if (name == "lr") {
+            regs.regs[30] = val;
+            matched = true;
+        } else if (name == "sp") {
+            regs.sp = val;
+            matched = true;
+        } else if (name == "pc") {
+            regs.pc = val;
+            matched = true;
+        } else if (name == "pstate" || name == "cpsr") {
+            regs.pstate = val;
+            matched = true;
+        }
+        if (!matched) {
+            outErr = "不支持修改该寄存器: " + regNameRaw;
+            return false;
+        }
+        struct iovec setIov{&regs, sizeof(regs)};
+        if (::ptrace(PTRACE_SETREGSET, tid, reinterpret_cast<void*>(static_cast<uintptr_t>(NT_PRSTATUS)), &setIov) < 0) {
+            outErr = "写回通用寄存器失败 (errno=" + std::to_string(errno) + ")";
+            return false;
+        }
+        return true;
+#elif defined(__arm__)
+        struct pt_regs regs{};
+        struct iovec iov{&regs, sizeof(regs)};
+        if (::ptrace(PTRACE_GETREGSET, tid, reinterpret_cast<void*>(static_cast<uintptr_t>(NT_PRSTATUS)), &iov) < 0) {
+            outErr = "读取线程通用寄存器失败 (errno=" + std::to_string(errno) + ")";
+            return false;
+        }
+        bool matched = false;
+        if (name.size() >= 2 && name[0] == 'r') {
+            int idx = std::atoi(name.c_str() + 1);
+            if (idx >= 0 && idx <= 15) {
+                regs.uregs[idx] = static_cast<unsigned long>(val);
+                matched = true;
+            }
+        } else if (name == "fp") {
+            regs.uregs[11] = static_cast<unsigned long>(val);
+            matched = true;
+        } else if (name == "ip") {
+            regs.uregs[12] = static_cast<unsigned long>(val);
+            matched = true;
+        } else if (name == "sp") {
+            regs.uregs[13] = static_cast<unsigned long>(val);
+            matched = true;
+        } else if (name == "lr") {
+            regs.uregs[14] = static_cast<unsigned long>(val);
+            matched = true;
+        } else if (name == "pc") {
+            regs.uregs[15] = static_cast<unsigned long>(val);
+            matched = true;
+        } else if (name == "cpsr") {
+            regs.uregs[16] = static_cast<unsigned long>(val);
+            matched = true;
+        }
+        if (!matched) {
+            outErr = "不支持修改该寄存器: " + regNameRaw;
+            return false;
+        }
+        struct iovec setIov{&regs, sizeof(regs)};
+        if (::ptrace(PTRACE_SETREGSET, tid, reinterpret_cast<void*>(static_cast<uintptr_t>(NT_PRSTATUS)), &setIov) < 0) {
+            outErr = "写回通用寄存器失败 (errno=" + std::to_string(errno) + ")";
+            return false;
+        }
+        return true;
+#elif defined(__x86_64__)
+        struct user_regs_struct regs{};
+        struct iovec iov{&regs, sizeof(regs)};
+        if (::ptrace(PTRACE_GETREGSET, tid, reinterpret_cast<void*>(static_cast<uintptr_t>(NT_PRSTATUS)), &iov) < 0) {
+            outErr = "读取线程通用寄存器失败 (errno=" + std::to_string(errno) + ")";
+            return false;
+        }
+        bool matched = true;
+        if (name == "rax") regs.rax = val;
+        else if (name == "rbx") regs.rbx = val;
+        else if (name == "rcx") regs.rcx = val;
+        else if (name == "rdx") regs.rdx = val;
+        else if (name == "rsi") regs.rsi = val;
+        else if (name == "rdi") regs.rdi = val;
+        else if (name == "rbp") regs.rbp = val;
+        else if (name == "rsp") regs.rsp = val;
+        else if (name == "r8")  regs.r8  = val;
+        else if (name == "r9")  regs.r9  = val;
+        else if (name == "r10") regs.r10 = val;
+        else if (name == "r11") regs.r11 = val;
+        else if (name == "r12") regs.r12 = val;
+        else if (name == "r13") regs.r13 = val;
+        else if (name == "r14") regs.r14 = val;
+        else if (name == "r15") regs.r15 = val;
+        else if (name == "rip") regs.rip = val;
+        else if (name == "eflags" || name == "rflags") regs.eflags = val;
+        else matched = false;
+        if (!matched) {
+            outErr = "不支持修改该寄存器: " + regNameRaw;
+            return false;
+        }
+        struct iovec setIov{&regs, sizeof(regs)};
+        if (::ptrace(PTRACE_SETREGSET, tid, reinterpret_cast<void*>(static_cast<uintptr_t>(NT_PRSTATUS)), &setIov) < 0) {
+            outErr = "写回通用寄存器失败 (errno=" + std::to_string(errno) + ")";
+            return false;
+        }
+        return true;
+#elif defined(__i386__)
+        struct user_regs_struct regs{};
+        struct iovec iov{&regs, sizeof(regs)};
+        if (::ptrace(PTRACE_GETREGSET, tid, reinterpret_cast<void*>(static_cast<uintptr_t>(NT_PRSTATUS)), &iov) < 0) {
+            outErr = "读取线程通用寄存器失败 (errno=" + std::to_string(errno) + ")";
+            return false;
+        }
+        bool matched = true;
+        if (name == "eax") regs.eax = static_cast<long>(val);
+        else if (name == "ebx") regs.ebx = static_cast<long>(val);
+        else if (name == "ecx") regs.ecx = static_cast<long>(val);
+        else if (name == "edx") regs.edx = static_cast<long>(val);
+        else if (name == "esi") regs.esi = static_cast<long>(val);
+        else if (name == "edi") regs.edi = static_cast<long>(val);
+        else if (name == "ebp") regs.ebp = static_cast<long>(val);
+        else if (name == "esp") regs.esp = static_cast<long>(val);
+        else if (name == "eip") regs.eip = static_cast<long>(val);
+        else if (name == "eflags") regs.eflags = static_cast<long>(val);
+        else matched = false;
+        if (!matched) {
+            outErr = "不支持修改该寄存器: " + regNameRaw;
+            return false;
+        }
+        struct iovec setIov{&regs, sizeof(regs)};
+        if (::ptrace(PTRACE_SETREGSET, tid, reinterpret_cast<void*>(static_cast<uintptr_t>(NT_PRSTATUS)), &setIov) < 0) {
+            outErr = "写回通用寄存器失败 (errno=" + std::to_string(errno) + ")";
+            return false;
+        }
+        return true;
+#else
+        (void)tid;
+        outErr = "当前架构不支持寄存器写回";
+        return false;
+#endif
+    } else {
+        uint64_t hi = 0, lo = 0;
+        if (!parseHexU128(hexValue, hi, lo)) {
+            outErr = "无效的浮点寄存器十六进制值";
+            return false;
+        }
+        outNumericVal = lo;
+        char buf[40];
+        if (hi != 0) {
+            std::snprintf(buf, sizeof(buf), "%016llX%016llX",
+                          static_cast<unsigned long long>(hi),
+                          static_cast<unsigned long long>(lo));
+        } else {
+            std::snprintf(buf, sizeof(buf), "%llX", static_cast<unsigned long long>(lo));
+        }
+        outNormHex = buf;
+
+#if defined(__aarch64__)
+        if (name.size() < 2 || (name[0] != 'v' && name[0] != 'q' && name[0] != 'd' && name[0] != 's')) {
+            outErr = "不支持修改该浮点寄存器: " + regNameRaw;
+            return false;
+        }
+        int idx = std::atoi(name.c_str() + 1);
+        if (idx < 0 || idx >= 32) {
+            outErr = "浮点寄存器索引越界: " + regNameRaw;
+            return false;
+        }
+        struct user_fpsimd_state fpRegs{};
+        struct iovec fpIov{&fpRegs, sizeof(fpRegs)};
+        if (::ptrace(PTRACE_GETREGSET, tid, reinterpret_cast<void*>(static_cast<uintptr_t>(NT_PRFPREG)), &fpIov) < 0) {
+            outErr = "读取线程浮点寄存器失败 (errno=" + std::to_string(errno) + ")";
+            return false;
+        }
+        __uint128_t v128 = (static_cast<__uint128_t>(hi) << 64) | static_cast<__uint128_t>(lo);
+        fpRegs.vregs[idx] = v128;
+        struct iovec setFpIov{&fpRegs, sizeof(fpRegs)};
+        if (::ptrace(PTRACE_SETREGSET, tid, reinterpret_cast<void*>(static_cast<uintptr_t>(NT_PRFPREG)), &setFpIov) < 0) {
+            outErr = "写回浮点寄存器失败 (errno=" + std::to_string(errno) + ")";
+            return false;
+        }
+        return true;
+#else
+        (void)tid;
+        outErr = "当前架构不支持浮点寄存器写回";
+        return false;
+#endif
+    }
+}
+
 } // namespace
 
 struct BreakpointManager::Session {
@@ -473,7 +822,21 @@ struct BreakpointManager::Session {
     std::atomic<bool> pausedFlag{false};
     std::atomic<bool> runningFlag{false};
 
+    struct PendingRegWrite {
+        int32_t tid = 0;
+        std::string regName;
+        std::string hexValue;
+        bool isFp = false;
+        bool done = false;
+        bool ok = false;
+        uint64_t numericVal = 0;
+        std::string normHex;
+        std::string error;
+    };
+
     mutable std::mutex dataMtx;
+    std::mutex regEditMtx;
+    std::vector<std::shared_ptr<PendingRegWrite>> pendingRegWrites;
     int32_t attachedThreads = 0;
     int32_t totalThreads = 0;
     uint64_t totalHits = 0;
@@ -505,6 +868,8 @@ struct BreakpointManager::Session {
             insnBuf.clear();
         }
 
+        int32_t resolvedHitType = classifyInsnAccessType(insnBuf, hitType);
+
         std::string mod;
         uint64_t off = 0;
         resolveAddressModule(maps, pc, mod, off);
@@ -513,7 +878,7 @@ struct BreakpointManager::Session {
         totalHits++;
         auto& g = hitMap[pc];
         g.pc = pc;
-        g.hitType = hitType;
+        g.hitType = resolvedHitType;
         g.tid = tid;
         g.arch = hostArchName();
         g.moduleName = mod;
@@ -654,6 +1019,111 @@ void BreakpointManager::stopAll() {
     for (auto& s : copy) {
         if (s->worker.joinable()) s->worker.join();
     }
+}
+
+bool BreakpointManager::modifyRegister(
+    int32_t bpId,
+    int32_t tid,
+    uint64_t hitPc,
+    const std::string& regName,
+    const std::string& hexValue,
+    bool isFp,
+    std::string* outError
+) {
+    std::shared_ptr<Session> target;
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        for (auto& s : sessions_) {
+            if (s->id == bpId) {
+                target = s;
+                break;
+            }
+        }
+    }
+    if (!target) {
+        if (outError) *outError = "未找到对应的断点会话";
+        return false;
+    }
+
+    int targetTid = tid > 0 ? tid : target->pid;
+    uint64_t numericVal = 0;
+    std::string normHex;
+    std::string errMsg;
+    bool ok = false;
+
+    if (target->mode == BpMode::PTRACE && target->runningFlag.load()) {
+        auto req = std::make_shared<Session::PendingRegWrite>();
+        req->tid = targetTid;
+        req->regName = regName;
+        req->hexValue = hexValue;
+        req->isFp = isFp;
+        {
+            std::lock_guard<std::mutex> rlk(target->regEditMtx);
+            target->pendingRegWrites.push_back(req);
+        }
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1200);
+        while (std::chrono::steady_clock::now() < deadline) {
+            {
+                std::lock_guard<std::mutex> rlk(target->regEditMtx);
+                if (req->done) {
+                    ok = req->ok;
+                    numericVal = req->numericVal;
+                    normHex = req->normHex;
+                    errMsg = req->error;
+                    break;
+                }
+            }
+            if (!target->runningFlag.load()) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        if (!ok && errMsg.empty()) {
+            errMsg = "等待调试线程写回寄存器超时";
+        }
+    } else {
+        // Perf mode or stopped session: perform brief ptrace attach -> write reg -> detach
+        if (::ptrace(PTRACE_ATTACH, targetTid, nullptr, nullptr) != 0) {
+            errMsg = "ptrace 附加目标线程失败 (errno=" + std::to_string(errno) + ")";
+        } else {
+            int st = 0;
+            if (::waitpid(targetTid, &st, __WALL) == targetTid && WIFSTOPPED(st)) {
+                ok = writeRegToStoppedTid(targetTid, regName, hexValue, isFp, numericVal, normHex, errMsg);
+            } else {
+                errMsg = "等待目标线程暂停失败";
+            }
+            ::ptrace(PTRACE_DETACH, targetTid, nullptr, nullptr);
+        }
+    }
+
+    if (!ok) {
+        if (outError) *outError = errMsg.empty() ? "寄存器修改失败" : errMsg;
+        return false;
+    }
+
+    // Update cached hit snapshot immediately so UI reflects the edited register value
+    {
+        std::lock_guard<std::mutex> dlk(target->dataMtx);
+        std::string lowerTarget = toLowerCopy(regName);
+        auto it = target->hitMap.find(hitPc);
+        if (it != target->hitMap.end()) {
+            auto& grp = it->second;
+            if (!isFp) {
+                for (auto& r : grp.gprs) {
+                    if (toLowerCopy(r.name) == lowerTarget) {
+                        r.value = numericVal;
+                    }
+                }
+                if (lowerTarget == "sp") grp.sp = numericVal;
+                if (lowerTarget == "lr") grp.lr = numericVal;
+            } else {
+                for (auto& fr : grp.fprs) {
+                    if (toLowerCopy(fr.name) == lowerTarget) {
+                        fr.hexValue = normHex;
+                    }
+                }
+            }
+        }
+    }
+    return true;
 }
 
 std::vector<BpSessionSnapshot> BreakpointManager::snapshots() const {
@@ -1126,6 +1596,42 @@ void BreakpointManager::ptraceWorkerLoop(std::shared_ptr<Session> sess) {
                     installHw(tid, !nowPaused);
                     ::ptrace(PTRACE_CONT, tid, nullptr, nullptr);
                 }
+            }
+        }
+
+        // Process any pending register modification requests from UI while holding ptrace ownership
+        {
+            std::vector<std::shared_ptr<Session::PendingRegWrite>> todo;
+            {
+                std::lock_guard<std::mutex> rlk(sess->regEditMtx);
+                if (!sess->pendingRegWrites.empty()) {
+                    todo.swap(sess->pendingRegWrites);
+                }
+            }
+            for (auto& req : todo) {
+                int targetTid = req->tid;
+                if (std::find(attachedTids.begin(), attachedTids.end(), targetTid) == attachedTids.end() &&
+                    !attachedTids.empty()) {
+                    targetTid = attachedTids.front();
+                }
+                ::kill(targetTid, SIGSTOP);
+                int st = 0;
+                bool wrote = false;
+                uint64_t numVal = 0;
+                std::string normHex;
+                std::string err;
+                if (::waitpid(targetTid, &st, __WALL) == targetTid && WIFSTOPPED(st)) {
+                    wrote = writeRegToStoppedTid(targetTid, req->regName, req->hexValue, req->isFp, numVal, normHex, err);
+                    ::ptrace(PTRACE_CONT, targetTid, nullptr, nullptr);
+                } else {
+                    err = "暂停目标线程以修改寄存器失败";
+                }
+                std::lock_guard<std::mutex> rlk(sess->regEditMtx);
+                req->ok = wrote;
+                req->numericVal = numVal;
+                req->normHex = normHex;
+                req->error = err;
+                req->done = true;
             }
         }
 

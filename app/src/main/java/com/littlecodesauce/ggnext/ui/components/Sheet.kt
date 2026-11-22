@@ -32,13 +32,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.littlecodesauce.ggnext.ui.theme.LocalUiMetrics
 import com.littlecodesauce.ggnext.ui.theme.Motion
 import com.littlecodesauce.ggnext.ui.theme.Rose
+import kotlin.math.roundToInt
 
 @Composable
 fun fsp(base: Float): androidx.compose.ui.unit.TextUnit =
@@ -82,7 +85,7 @@ fun NextSheetCard(
         val effectiveMaxBodyHeight = minOf(maxBodyHeight, (availHeightDp - headerReserve - 12).coerceAtLeast(110)).dp
         val useLandscapeSideKeyboard = isLandscape && showSideKeyboard && sideKeyboard != null
         val maxCardWidth = when {
-            useLandscapeSideKeyboard -> 880.dp
+            useLandscapeSideKeyboard -> 960.dp
             isLandscape -> 560.dp
             else -> Dp.Unspecified
         }
@@ -100,54 +103,75 @@ fun NextSheetCard(
             .border(1.dp, Rose.Divider, RoundedCornerShape(corner))
 
         if (useLandscapeSideKeyboard) {
-            Row(
+            Layout(
                 modifier = cardModifier.padding(end = 10.dp),
-                verticalAlignment = Alignment.Top
-            ) {
-                Column(
-                    modifier = Modifier
-                        .weight(1.12f)
-                        .heightIn(max = maxCardHeight)
-                ) {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(
-                                start = 16.dp,
-                                end = 10.dp,
-                                top = if (isCompactHeight) 7.dp else 11.dp,
-                                bottom = if (subtitle.isNullOrBlank()) (if (isCompactHeight) 4.dp else 6.dp) else 2.dp
-                            ),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(tr(title), color = Rose.Text, fontSize = fsp(if (isCompactHeight) 16.5f else 19f), fontWeight = FontWeight.Medium)
-                        Spacer(Modifier.weight(1f))
-                        CloseBadge(onDismiss)
-                    }
-                    if (!subtitle.isNullOrBlank()) {
-                        Text(
-                            tr(subtitle),
-                            color = Rose.TextSecond,
-                            fontSize = fsp(if (isCompactHeight) 11f else 12.5f),
-                            modifier = Modifier.padding(start = 16.dp, end = 12.dp, bottom = if (isCompactHeight) 3.dp else 5.dp)
-                        )
-                    }
+                content = {
                     Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .weight(1f, fill = false)
-                            .heightIn(max = effectiveMaxBodyHeight)
-                            .padding(start = 14.dp, end = 10.dp, bottom = if (isCompactHeight) 8.dp else 10.dp)
-                    ) { body() }
-                }
+                        modifier = Modifier.heightIn(max = maxCardHeight)
+                    ) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(
+                                    start = 16.dp,
+                                    end = 10.dp,
+                                    top = if (isCompactHeight) 7.dp else 11.dp,
+                                    bottom = if (subtitle.isNullOrBlank()) (if (isCompactHeight) 4.dp else 6.dp) else 2.dp
+                                ),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(tr(title), color = Rose.Text, fontSize = fsp(if (isCompactHeight) 16.5f else 19f), fontWeight = FontWeight.Medium)
+                            Spacer(Modifier.weight(1f))
+                            CloseBadge(onDismiss)
+                        }
+                        if (!subtitle.isNullOrBlank()) {
+                            Text(
+                                tr(subtitle),
+                                color = Rose.TextSecond,
+                                fontSize = fsp(if (isCompactHeight) 11f else 12.5f),
+                                modifier = Modifier.padding(start = 16.dp, end = 12.dp, bottom = if (isCompactHeight) 3.dp else 5.dp)
+                            )
+                        }
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .weight(1f, fill = false)
+                                .heightIn(max = effectiveMaxBodyHeight)
+                                .padding(start = 14.dp, end = 10.dp, bottom = if (isCompactHeight) 8.dp else 10.dp)
+                        ) { body() }
+                    }
 
-                Box(
-                    modifier = Modifier
-                        .weight(0.92f)
-                        .padding(vertical = if (isCompactHeight) 8.dp else 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    sideKeyboard?.invoke()
+                    Box(
+                        modifier = Modifier
+                            .padding(vertical = if (isCompactHeight) 8.dp else 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        sideKeyboard?.invoke()
+                    }
+                }
+            ) { measurables, constraints ->
+                val totalW = constraints.maxWidth.coerceAtLeast(1)
+                val leftW = (totalW * 0.54f).roundToInt().coerceIn(1, totalW - 1)
+                val rightW = (totalW - leftW).coerceAtLeast(1)
+                val maxH = constraints.maxHeight
+
+                val leftPlaceable = measurables[0].measure(
+                    Constraints(
+                        minWidth = leftW,
+                        maxWidth = leftW,
+                        minHeight = 0,
+                        maxHeight = maxH
+                    )
+                )
+                val minKbHeight = 196.dp.roundToPx().coerceAtMost(maxH)
+                val containerH = maxOf(leftPlaceable.height, minKbHeight).coerceAtMost(maxH)
+                val rightPlaceable = measurables[1].measure(
+                    Constraints.fixed(width = rightW, height = containerH)
+                )
+
+                layout(totalW, containerH) {
+                    leftPlaceable.placeRelative(0, 0)
+                    rightPlaceable.placeRelative(leftW, 0)
                 }
             }
         } else {

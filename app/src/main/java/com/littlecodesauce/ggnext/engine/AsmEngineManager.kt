@@ -3,6 +3,8 @@ package com.littlecodesauce.ggnext.engine
 import android.content.Context
 import android.net.Uri
 import android.os.Build
+import android.os.Process
+import android.system.Os
 import com.littlecodesauce.ggnext.data.AppLog
 import com.littlecodesauce.ggnext.model.AsmArch
 import com.littlecodesauce.ggnext.model.AsmPackStatus
@@ -35,10 +37,19 @@ object AsmEngineManager {
         }
     )
 
-    fun primaryAbi(): String {
-        val abis = Build.SUPPORTED_ABIS
-        return abis?.firstOrNull()?.takeIf { it.isNotBlank() } ?: "arm64-v8a"
+    private fun processCompatibleAbis(): List<String> {
+        val bitMatched = if (Process.is64Bit()) {
+            Build.SUPPORTED_64_BIT_ABIS?.toList().orEmpty()
+        } else {
+            Build.SUPPORTED_32_BIT_ABIS?.toList().orEmpty()
+        }
+        val all = Build.SUPPORTED_ABIS?.toList().orEmpty()
+        return (bitMatched + all).distinct().ifEmpty {
+            listOf(if (Process.is64Bit()) "arm64-v8a" else "armeabi-v7a")
+        }
     }
+
+    fun primaryAbi(): String = processCompatibleAbis().firstOrNull()?.takeIf { it.isNotBlank() } ?: "arm64-v8a"
 
     fun defaultArchForDevice(isTarget64Bit: Boolean = true): AsmArch {
         val abi = primaryAbi()
@@ -86,7 +97,7 @@ object AsmEngineManager {
 
     fun autoLoad(context: Context): AsmPackStatus {
         val root = rootDir(context)
-        val abis = (Build.SUPPORTED_ABIS ?: arrayOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")).toList()
+        val abis = processCompatibleAbis()
         var chosenAbi = ""
         var chosenDir: File? = null
         for (abi in abis) {
@@ -101,7 +112,7 @@ object AsmEngineManager {
             status = AsmPackStatus(installed = false, abi = primaryAbi())
             return status
         }
-        return loadFromDirectory(chosenDir, chosenAbi, readManifestSummary(File(root, META_FILE)))
+        return loadFromDirectory(context, chosenDir, chosenAbi, readManifestSummary(File(root, META_FILE)))
     }
 
     fun importFromUri(context: Context, uri: Uri): AsmPackStatus {
@@ -123,7 +134,7 @@ object AsmEngineManager {
         tempDir.mkdirs()
 
         return try {
-            val supportedAbis = (Build.SUPPORTED_ABIS ?: arrayOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")).toList()
+            val supportedAbis = processCompatibleAbis()
             val foundByAbi = HashMap<String, MutableList<Pair<String, File>>>()
             var manifestText = ""
 
@@ -160,31 +171,36 @@ object AsmEngineManager {
                 }
             }
 
-            // Pick highest-priority ABI supported by current device that has at least one .so
+            // Pick highest-priority ABI matching current process bitness
             val bestAbi = supportedAbis.firstOrNull { abi ->
                 val list = foundByAbi[abi].orEmpty()
                 list.any { it.first == "libkeystone.so" } && list.any { it.first == "libcapstone.so" }
             } ?: supportedAbis.firstOrNull { foundByAbi[it]?.isNotEmpty() == true }
 
             if (bestAbi == null) {
-                val err = "压缩包中未找到适配当前设备 (${supportedAbis.joinToString("/")}) 的 libkeystone.so / libcapstone.so"
+                val err = "压缩包中未找到适配当前进程架构 (${supportedAbis.joinToString("/")}) 的 libkeystone.so / libcapstone.so"
                 status = status.copy(error = err)
                 return status
             }
 
             if (root.exists()) root.deleteRecursively()
             val dstAbiDir = File(root, bestAbi).apply { mkdirs() }
+            runCatching { Os.chmod(root.absolutePath, 493) } // 0755
+            runCatching { Os.chmod(dstAbiDir.absolutePath, 493) } // 0755
             for ((name, stagedFile) in foundByAbi[bestAbi].orEmpty()) {
                 val target = File(dstAbiDir, name)
                 stagedFile.copyTo(target, overwrite = true)
+                // Android 14/15 (targetSdk >= 34) requires dynamically loaded .so files to be read-only (0555)
                 target.setReadable(true, false)
                 target.setExecutable(true, false)
+                target.setWritable(false, false)
+                runCatching { Os.chmod(target.absolutePath, 365) } // 0555 (r-xr-xr-x)
             }
             if (manifestText.isNotBlank()) {
                 File(root, META_FILE).writeText(manifestText)
             }
             disasmOneCache.clear()
-            loadFromDirectory(dstAbiDir, bestAbi, parseManifestSummary(manifestText))
+            loadFromDirectory(context, dstAbiDir, bestAbi, parseManifestSummary(manifestText))
         } catch (t: Throwable) {
             AppLog.e("AsmEngineManager", "Import asm pack failed", t)
             val err = "导入失败：${t.message ?: t.javaClass.simpleName}"
@@ -203,16 +219,25 @@ object AsmEngineManager {
         return status
     }
 
-    private fun loadFromDirectory(dir: File, abi: String, versionInfo: String): AsmPackStatus {
-        if (!NativeMemBridge.isLoaded) {
+    private fun loadFromDirectory(context: Context, dir: File, abi: String, versionInfo: String): AsmPackStatus {
+        if (!NativeMemBridge.ensureLoaded(context)) {
+            val reason = NativeMemBridge.loadError.ifBlank { "libmem_engine_jni.so 未打包或架构不匹配" }
             status = AsmPackStatus(
                 installed = true,
                 abi = abi,
                 libDir = dir.absolutePath,
                 versionInfo = versionInfo,
-                error = "原生 JNI 库未加载"
+                error = "原生 JNI 库加载失败：$reason"
             )
             return status
+        }
+        // Ensure extracted libraries keep 0555 permissions before dlopen on Android 14/15
+        listOf("libkeystone.so", "libcapstone.so").forEach { name ->
+            val f = File(dir, name)
+            if (f.exists()) {
+                f.setWritable(false, false)
+                runCatching { Os.chmod(f.absolutePath, 365) }
+            }
         }
         val msg = NativeMemBridge.nativeLoadAsmEngine(dir.absolutePath)
         val flags = NativeMemBridge.nativeGetAsmEngineFlags()

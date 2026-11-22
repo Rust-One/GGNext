@@ -1,0 +1,105 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"jsonFile" : "directory-.-Debug-f5ebdc15457944623624.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.6.0"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5
+					]
+				}
+			],
+			"name" : "Debug",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "MemDiagnosticEngine",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "ggnext_agent::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ggnext_agent-Debug-505ebcb1c781f536f997.json",
+					"name" : "ggnext_agent",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "mem_engine_core::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-mem_engine_core-Debug-d49d8d8464f8d618529a.json",
+					"name" : "mem_engine_core",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "mem_engine_jni::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-mem_engine_jni-Debug-b9a1eaec17c34f1ddb32.json",
+					"name" : "mem_engine_jni",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "mem_engine_root::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-mem_engine_root-Debug-93c69e3ddac025b047df.json",
+					"name" : "mem_engine_root",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "shadowhook::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-shadowhook-Debug-2510984a8c543a125c93.json",
+					"name" : "shadowhook",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "xdl::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-xdl-Debug-d622a7cd5a1d31305f9b.json",
+					"name" : "xdl",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/app/applet/app/.cxx/Debug/3x4p6k1s/arm64-v8a",
+		"source" : "/app/applet/app/src/main/cpp"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 3
+	}
+}

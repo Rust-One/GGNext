@@ -2,14 +2,16 @@
 
 GGNext 是一款面向 Android 平台的开源内存分析与调试工具，基于 Kotlin、Jetpack Compose 与 C++20 原生引擎构建。
 
-项目源于在 Android 平台上对独立内存扫描引擎与现代化调试界面的实践重构，用于在本地开发测试、故障排查与安全研究场景中查看、检索和修改目标进程的运行期内存。
+项目源于在 Android 平台上对独立内存扫描引擎与现代化调试界面的实践重构，用于在本地开发测试、故障排查与安全研究场景中查看、检索、调试和修改目标进程的运行期内存。
 
 ## 主要功能
 
-- 支持 Root 直读与免 Root 共享 UID 两种工作模式
-- 进程筛选与常规 Android 虚拟内存区域分类统计
-- 精确数值、区间范围、模糊变化、联合结构、字节掩码与异或编码搜索
-- 实时内存多类型浏览、地址跳转与数值锁定
+- **双工作模式**：支持 Root 直读与免 Root 共享 UID 两种工作模式
+- **内存搜索**：支持精确数值、区间范围、模糊变化、联合搜索、指针搜索、字节掩码与异或编码搜索
+- **内存浏览与编辑**：支持多类型实时浏览、地址跳转、偏移计算、内存复制与导出、目标进程内存页分配（支持自定义读/写/执行权限）、数值锁定与批量修改
+- **硬件断点调试器**：支持 Perf 与 Ptrace 双后端（可在设置页切换），提供只读 / 只写 / 读写 / 执行硬件断点、指令实际读写类型识别、命中次数统计、通用/浮点寄存器实时编辑写回与调用链回溯
+- **汇编与反汇编扩展**：支持导入外部汇编引擎包（Keystone / Capstone），提供内存页反汇编视图与多架构汇编指令写入（ARM64 / ARM / Thumb / x86 / x86_64）
+- **脚本与列表管理**：支持 Lua 脚本执行、搜索/保存列表导入导出与自定义工具栏排序
 
 ## 构建环境
 
@@ -21,9 +23,13 @@ GGNext 是一款面向 Android 平台的开源内存分析与调试工具，基�
 
 构建产物默认输出至 `app/build/outputs/apk/debug/app-debug.apk`。
 
-## 参考来源
+## 鸣谢与参考来源
 
-- [AGameGuardian](https://github.com/AGameGuardian/agameguardian.github.io) —— 感谢其优秀的界面设计，本项目在界面布局与部分交互上从中获取了灵感。
+- [GameGuardian](https://gameguardian.net) —— 致敬 Android 平台经典的内存分析与修改工具先驱，其搜索语法、联合搜索范式与内存浏览体系为本项目奠定了重要参考。
+- [AGameGuardian](https://github.com/AGameGuardian/agameguardian.github.io) —— 感谢其优秀的界面设计，本项目在视觉层次、界面布局与多项交互细节上从中获取了灵感。
+- [ShadowHook](https://github.com/bytedance/android-shadowhook) —— 感谢字节跳动开源的 Android inline hook 框架。
+- [xDL](https://github.com/hexhacking/xDL) —— 感谢开源的增强型 Android DL 动态库与符号解析库。
+- [Keystone](https://www.keystone-engine.org/) / [Capstone](https://www.capstone-engine.org/) —— 外部可导入的汇编与反汇编引擎支持。
 
 ## 开源协议与声明
 

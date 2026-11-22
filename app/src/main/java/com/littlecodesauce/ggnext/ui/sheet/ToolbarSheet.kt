@@ -74,7 +74,7 @@ import kotlinx.coroutines.launch
 fun ToolbarSheet(ui: Ui) {
     var tab by remember {
         mutableStateOf(
-            if (ui.tab == NextTab.SETTINGS || ui.tab == NextTab.DEBUG) NextTab.SEARCH_LIST else ui.tab
+            if (ui.tab == NextTab.SETTINGS) NextTab.SEARCH_LIST else ui.tab
         )
     }
 
@@ -105,9 +105,9 @@ fun ToolbarSheet(ui: Ui) {
         maxBodyHeight = 720
     ) {
         Column {
-            // Tab 切换（搜索列表 / 保存列表 / 内存浏览）
+            // Tab 切换（搜索 / 保存 / 内存 / 调试）
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(NextTab.SEARCH_LIST, NextTab.SAVED_LIST, NextTab.MEMORY).forEach { t ->
+                listOf(NextTab.SEARCH_LIST, NextTab.SAVED_LIST, NextTab.MEMORY, NextTab.DEBUG).forEach { t ->
                     Box(
                         Modifier
                             .weight(1f)
@@ -162,7 +162,7 @@ fun ToolbarSheet(ui: Ui) {
                     )
                     Spacer(Modifier.weight(1f))
                     Text(
-                        "${pinnedList.size} 个工具",
+                        "${pinnedList.size} ${tr("个工具")}",
                         color = Rose.TextDim,
                         fontSize = fsp(11.5f)
                     )
@@ -308,7 +308,7 @@ fun ToolbarSheet(ui: Ui) {
                     )
                     Spacer(Modifier.weight(1f))
                     Text(
-                        "${flowingList.size} 个工具",
+                        "${flowingList.size} ${tr("个工具")}",
                         color = Rose.TextDim,
                         fontSize = fsp(11.5f)
                     )
@@ -452,7 +452,7 @@ fun ToolbarSheet(ui: Ui) {
 fun ToolbarPickSheet(ui: Ui) {
     var tab by remember {
         mutableStateOf(
-            if (ui.tab == NextTab.SETTINGS || ui.tab == NextTab.DEBUG) NextTab.SEARCH_LIST else ui.tab
+            if (ui.tab == NextTab.SETTINGS) NextTab.SEARCH_LIST else ui.tab
         )
     }
     val current = ui.tools[tab] ?: Session.toolList(tab)
@@ -464,7 +464,7 @@ fun ToolbarPickSheet(ui: Ui) {
     ) {
         Column {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(NextTab.SEARCH_LIST, NextTab.SAVED_LIST, NextTab.MEMORY).forEach { t ->
+                listOf(NextTab.SEARCH_LIST, NextTab.SAVED_LIST, NextTab.MEMORY, NextTab.DEBUG).forEach { t ->
                     Box(
                         Modifier
                             .weight(1f)
