@@ -25,11 +25,11 @@ GGNext 是一款面向 Android 平台的开源内存分析与调试工具，基�
 
 ## 鸣谢与参考来源
 
-- [GameGuardian](https://gameguardian.net)Android 平台经典的内存分析与修改工具先驱
-- [AGameGuardian](https://github.com/AGameGuardian/agameguardian.github.io)感谢其优秀的界面设计，本项目从中获取了灵感。
-- [ShadowHook](https://github.com/bytedance/android-shadowhook)优秀的开源 Android inline hook 框架。
-- [xDL](https://github.com/hexhacking/xDL)Android DL 动态库与符号解析库。
-- [Keystone](https://www.keystone-engine.org/) / [Capstone](https://www.capstone-engine.org/)汇编与反汇编引擎支持
+- [GameGuardian](https://gameguardian.net)：Android 平台经典的内存分析与修改工具先驱
+- [AGameGuardian](https://github.com/AGameGuardian/agameguardian.github.io)：感谢其优秀的界面设计，本项目从中获取了灵感。
+- [ShadowHook](https://github.com/bytedance/android-shadowhook)：优秀的开源 Android inline hook 框架。
+- [xDL](https://github.com/hexhacking/xDL)：Android DL 动态库与符号解析库。
+- [Keystone](https://www.keystone-engine.org/) / [Capstone](https://www.capstone-engine.org/)：汇编与反汇编引擎支持
 
 ## 开源协议与声明
 
