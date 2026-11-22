@@ -152,6 +152,8 @@ data class UiMetrics(
 
 val LocalUiMetrics = staticCompositionLocalOf { UiMetrics() }
 
+val LocalAppFontFamily = staticCompositionLocalOf<FontFamily> { FontFamily.Default }
+
 @Composable
 fun GgNextTheme(
     preset: ThemePreset? = null,
@@ -166,6 +168,9 @@ fun GgNextTheme(
     val activeDarkMode = darkMode ?: ui.darkMode
     val activeDynamic = dynamicColor ?: ui.dynamicColor
     val lang = ui.settings["language"] ?: AppStrings.LANG_ZH
+    val activeFontFamily = androidx.compose.runtime.remember(ui.customFontPath) {
+        AppFontCache.fontFamilyFor(ui.customFontPath)
+    }
 
     val (computedPalette, scheme) = rememberPaletteAndScheme(
         preset = activePreset,
@@ -185,20 +190,33 @@ fun GgNextTheme(
     }
 
     val m = metrics ?: ui.metrics
+    val baseTypography = Typography()
     val typography = Typography(
-        titleLarge = TextStyle(
-            fontFamily = FontFamily.SansSerif,
+        displayLarge = baseTypography.displayLarge.copy(fontFamily = activeFontFamily),
+        displayMedium = baseTypography.displayMedium.copy(fontFamily = activeFontFamily),
+        displaySmall = baseTypography.displaySmall.copy(fontFamily = activeFontFamily),
+        headlineLarge = baseTypography.headlineLarge.copy(fontFamily = activeFontFamily),
+        headlineMedium = baseTypography.headlineMedium.copy(fontFamily = activeFontFamily),
+        headlineSmall = baseTypography.headlineSmall.copy(fontFamily = activeFontFamily),
+        titleLarge = baseTypography.titleLarge.copy(
+            fontFamily = activeFontFamily,
             fontWeight = FontWeight.Medium,
             fontSize = (21 * m.fontScale).sp,
             color = computedPalette.text
         ),
-        bodyMedium = TextStyle(
-            fontFamily = FontFamily.SansSerif,
+        titleMedium = baseTypography.titleMedium.copy(fontFamily = activeFontFamily, color = computedPalette.text),
+        titleSmall = baseTypography.titleSmall.copy(fontFamily = activeFontFamily, color = computedPalette.text),
+        bodyLarge = baseTypography.bodyLarge.copy(fontFamily = activeFontFamily, color = computedPalette.text),
+        bodyMedium = baseTypography.bodyMedium.copy(
+            fontFamily = activeFontFamily,
             fontSize = (14 * m.fontScale).sp,
             color = computedPalette.text
         ),
-        labelSmall = TextStyle(
-            fontFamily = FontFamily.SansSerif,
+        bodySmall = baseTypography.bodySmall.copy(fontFamily = activeFontFamily, color = computedPalette.textSecond),
+        labelLarge = baseTypography.labelLarge.copy(fontFamily = activeFontFamily),
+        labelMedium = baseTypography.labelMedium.copy(fontFamily = activeFontFamily),
+        labelSmall = baseTypography.labelSmall.copy(
+            fontFamily = activeFontFamily,
             fontSize = (10 * m.fontScale).sp,
             color = computedPalette.textDim
         )
@@ -208,10 +226,15 @@ fun GgNextTheme(
         LocalAppPalette provides computedPalette,
         LocalAppLang provides lang,
         LocalUiMetrics provides m,
+        LocalAppFontFamily provides activeFontFamily,
         LocalContentColor provides computedPalette.text
     ) {
         MaterialTheme(colorScheme = scheme, typography = typography) {
-            content()
+            androidx.compose.material3.ProvideTextStyle(
+                value = TextStyle(fontFamily = activeFontFamily, color = computedPalette.text)
+            ) {
+                content()
+            }
         }
     }
 }

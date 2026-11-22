@@ -150,10 +150,11 @@ fun SettingsScreen(ui: Ui, embedded: Boolean = false) {
 
                     RowDivider()
 
+                    val fontSub = ui.customFontName.ifBlank { tr("系统默认") }
                     NavRow(
                         icon = Icons.Rounded.Palette,
-                        title = "外观与字体缩放",
-                        subtitle = "当前主题：${tr(ui.preset.label)} · ${tr(ui.darkMode.label)} · ${(ui.metrics.panelScale * 100).roundToInt()}%"
+                        title = "外观与主题",
+                        subtitle = "当前主题：${tr(ui.preset.label)} · ${tr(ui.darkMode.label)} · $fontSub"
                     ) {
                         Session.openSheet(Sheet.APPEARANCE)
                     }

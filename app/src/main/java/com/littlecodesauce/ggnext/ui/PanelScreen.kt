@@ -29,8 +29,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.BugReport
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,7 +48,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
@@ -59,7 +62,6 @@ import com.littlecodesauce.ggnext.ui.components.NavBar
 import com.littlecodesauce.ggnext.ui.components.ProcessBar
 import com.littlecodesauce.ggnext.ui.components.RegionSummaryBar
 import com.littlecodesauce.ggnext.ui.components.ToolBar
-import com.littlecodesauce.ggnext.ui.components.VerticalNavRail
 import com.littlecodesauce.ggnext.ui.components.clickableNoRipple
 import com.littlecodesauce.ggnext.ui.components.fsp
 import com.littlecodesauce.ggnext.ui.components.monoStyle
@@ -67,6 +69,7 @@ import com.littlecodesauce.ggnext.ui.components.tr
 import com.littlecodesauce.ggnext.ui.components.valueText
 import com.littlecodesauce.ggnext.ui.model.RegionCatalog
 import com.littlecodesauce.ggnext.ui.model.ToolId
+import com.littlecodesauce.ggnext.ui.screen.DebugScreen
 import com.littlecodesauce.ggnext.ui.screen.MemoryScreen
 import com.littlecodesauce.ggnext.ui.screen.SavedListScreen
 import com.littlecodesauce.ggnext.ui.screen.SearchListScreen
@@ -94,9 +97,6 @@ fun PanelScreen(
     val sheetOpen = ui.sheet != Sheet.NONE
     val app = LocalContext.current.applicationContext as android.app.Application
     val clipboard = LocalClipboardManager.current
-    val configuration = LocalConfiguration.current
-    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE ||
-        configuration.screenWidthDp > configuration.screenHeightDp
     var refreshRequested by remember { mutableStateOf(false) }
 
     LaunchedEffect(refreshRequested) {
@@ -122,7 +122,7 @@ fun PanelScreen(
 
     val workArea: @Composable (Modifier) -> Unit = { mod ->
         Column(modifier = mod) {
-            if (ui.tab != NextTab.SETTINGS) {
+            if (ui.tab != NextTab.SETTINGS && ui.tab != NextTab.DEBUG) {
                 ToolBar(
                     flowingTools = ui.flowingTools,
                     pinnedTools = ui.currentPinnedTools,
@@ -149,8 +149,7 @@ fun PanelScreen(
                     },
                     onMovePinnedTool = { from, to ->
                         Session.movePinnedTool(ui.tab, from, to)
-                    },
-                    onMinimize = if (isLandscape) onMinimize else null
+                    }
                 )
             }
             Hairline()
@@ -164,44 +163,55 @@ fun PanelScreen(
                 onRefresh = {
                     Session.refreshLiveValues(manual = true)
                 },
-                onPause = { Session.toggleProcessPause() },
-                onMinimize = if (isLandscape && ui.tab == NextTab.SETTINGS) onMinimize else null
+                onPause = { Session.toggleProcessPause() }
             )
             Hairline()
             AnimatedVisibility(visible = ui.busy) {
                 com.littlecodesauce.ggnext.ui.components.InlineSearchProgressBar(ui = ui)
             }
 
-            AnimatedContent(
-                targetState = ui.tab,
-                transitionSpec = {
-                    val forward = targetState.ordinal > initialState.ordinal
-                    (fadeIn(tween(160)) + slideInVertically(tween(180)) { h -> if (forward) h / 14 else -h / 14 })
-                        .togetherWith(fadeOut(tween(110)))
-                },
-                label = "panelTab",
-                modifier = Modifier.weight(1f)
-            ) { tab ->
-                when (tab) {
-                    NextTab.SEARCH_LIST -> SearchListScreen(ui)
-                    NextTab.SAVED_LIST -> SavedListScreen(ui)
-                    NextTab.MEMORY -> MemoryScreen(ui)
-                    NextTab.SETTINGS -> SettingsScreen(ui, embedded = true)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                AnimatedContent(
+                    targetState = ui.tab,
+                    transitionSpec = {
+                        val forward = targetState.ordinal > initialState.ordinal
+                        (fadeIn(tween(160)) + slideInVertically(tween(180)) { h -> if (forward) h / 14 else -h / 14 })
+                            .togetherWith(fadeOut(tween(110)))
+                    },
+                    label = "panelTab",
+                    modifier = Modifier.fillMaxSize()
+                ) { tab ->
+                    when (tab) {
+                        NextTab.SEARCH_LIST -> SearchListScreen(ui)
+                        NextTab.SAVED_LIST -> SavedListScreen(ui)
+                        NextTab.MEMORY -> MemoryScreen(ui)
+                        NextTab.SETTINGS -> SettingsScreen(ui, embedded = true)
+                        NextTab.DEBUG -> DebugScreen(ui)
+                    }
+                }
+
+                if (ui.tab != NextTab.DEBUG) {
+                    RegionSummaryBar(
+                        codes = orderedSelectedRegions,
+                        checkedItemCount = checkedCount,
+                        onLongPress = { Session.openSheet(Sheet.REGION) },
+                        onClick = { Session.openSheet(Sheet.REGION) },
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                    )
                 }
             }
-
-            RegionSummaryBar(
-                codes = orderedSelectedRegions,
-                checkedItemCount = checkedCount,
-                onLongPress = { Session.openSheet(Sheet.REGION) },
-                onClick = { Session.openSheet(Sheet.REGION) }
-            )
         }
     }
 
+    // 无论页面占比是否为 100%，外层始终避让顶部状态栏（悬浮窗模式由 FloatingIconService 窗口安全区统一避让）
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .then(if (compact) Modifier else Modifier.statusBarsPadding())
             .background(Color.Transparent),
         contentAlignment = Alignment.Center
     ) {
@@ -231,38 +241,22 @@ fun PanelScreen(
         ) {
             val contentMod = Modifier
                 .fillMaxSize()
-                .then(if (compact || isPartialScreen) Modifier else Modifier.statusBarsPadding())
                 .graphicsLayer {
                     scaleX = contentScale
                     scaleY = contentScale
                     alpha = contentAlpha
                 }
 
-            if (isLandscape) {
-                Row(modifier = contentMod) {
-                    VerticalNavRail(
-                        tab = ui.tab,
-                        target = ui.target,
-                        searchCount = ui.results.size,
-                        savedCount = ui.saved.size,
-                        onPickProcess = { Session.openSheet(Sheet.PROCESS) },
-                        onTab = onNav
-                    )
-                    workArea(Modifier.weight(1f).fillMaxHeight())
-                }
-            } else {
-                Column(modifier = contentMod) {
-                    NavBar(
-                        tab = ui.tab,
-                        target = ui.target,
-                        searchCount = ui.results.size,
-                        savedCount = ui.saved.size,
-                        onPickProcess = { Session.openSheet(Sheet.PROCESS) },
-                        onTab = onNav,
-                        onMinimize = onMinimize
-                    )
-                    workArea(Modifier.weight(1f).fillMaxWidth())
-                }
+            Column(modifier = contentMod) {
+                NavBar(
+                    tab = ui.tab,
+                    searchCount = ui.results.size,
+                    savedCount = ui.saved.size,
+                    debugCount = ui.breakpoints.count { it.isActive },
+                    onTab = onNav,
+                    onMinimize = onMinimize
+                )
+                workArea(Modifier.weight(1f).fillMaxWidth())
             }
         }
 
@@ -393,6 +387,14 @@ private fun handleTool(
         ToolId.COPY_MEM -> Session.openSheet(Sheet.COPY_MEMORY)
         ToolId.DUMP -> Session.openSheet(Sheet.DUMP)
         ToolId.ALLOCATE -> Session.openSheet(Sheet.ALLOCATE)
+        ToolId.BREAKPOINT -> {
+            val first = Session.checkedItems().firstOrNull()
+            Session.openSheet(Sheet.BREAKPOINT, first)
+        }
+        ToolId.WRITE_ASM -> {
+            val first = Session.checkedItems().firstOrNull()
+            Session.openSheet(Sheet.WRITE_ASM, first)
+        }
         ToolId.BACK -> Session.memoryBack()
         ToolId.FORWARD -> Session.memoryForward()
         ToolId.SPEED -> Session.openSheet(Sheet.SPEED)

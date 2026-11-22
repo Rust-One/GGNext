@@ -3,6 +3,11 @@
 #include "mem_engine/process_enum.hpp"
 #include "mem_engine/proc_io.hpp"
 #include "mem_engine/search_engine.hpp"
+#include "mem_engine/debugger.hpp"
+
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #include <algorithm>
 #include <atomic>
@@ -90,6 +95,7 @@ int main(int argc, char** argv) {
     mem_engine::ProcIO io;
     mem_engine::SearchEngine scanner(io, threads, spillDir);
     mem_engine::ValueLocker locker(io, 10);
+    mem_engine::BreakpointManager bpManager;
     mem_engine::CancellationToken cancelToken;
     std::vector<mem_engine::VmaRegion> cachedAllRegions;
     mem_engine::VmaIndex cachedVmaIndex;
@@ -164,6 +170,7 @@ int main(int argc, char** argv) {
         if (cmd == "EXIT" || cmd == "QUIT") {
             cancelToken.cancel();
             waitForScan();
+            bpManager.stopAll();
             locker.unlockAll();
             std::lock_guard<std::mutex> outLk(stdoutMutex);
             std::printf("OK BYE\n");
@@ -688,6 +695,105 @@ int main(int argc, char** argv) {
                 );
             }
             std::fflush(stdout);
+        } else if (cmd == "BP_ADD") {
+            std::string addrHex;
+            int bpType = 3, bpSize = 4, bpMode = 0, captureStack = 1;
+            iss >> addrHex >> bpType >> bpSize >> bpMode >> captureStack;
+            uint64_t addr = std::strtoull(addrHex.c_str(), nullptr, 16);
+            std::string errMsg;
+            int32_t bpId = bpManager.addBreakpoint(
+                io.pid(),
+                addr,
+                static_cast<mem_engine::BpType>(bpType),
+                bpSize,
+                static_cast<mem_engine::BpMode>(bpMode),
+                captureStack != 0,
+                &errMsg
+            );
+            std::lock_guard<std::mutex> outLk(stdoutMutex);
+            if (bpId > 0) {
+                std::printf("OK %d\n", bpId);
+            } else {
+                std::printf("ERR %s\n", errMsg.empty() ? "ADD_BP_FAILED" : errMsg.c_str());
+            }
+            std::fflush(stdout);
+        } else if (cmd == "BP_REMOVE") {
+            int32_t bpId = 0;
+            iss >> bpId;
+            bool ok = bpManager.removeBreakpoint(bpId);
+            std::lock_guard<std::mutex> outLk(stdoutMutex);
+            std::printf("%s\n", ok ? "OK" : "ERR NOT_FOUND");
+            std::fflush(stdout);
+        } else if (cmd == "BP_PAUSE") {
+            int32_t bpId = 0, paused = 1;
+            iss >> bpId >> paused;
+            bool ok = bpManager.setPaused(bpId, paused != 0);
+            std::lock_guard<std::mutex> outLk(stdoutMutex);
+            std::printf("%s\n", ok ? "OK" : "ERR NOT_FOUND");
+            std::fflush(stdout);
+        } else if (cmd == "BP_PAUSE_ALL") {
+            int32_t paused = 1;
+            iss >> paused;
+            bpManager.setAllPaused(paused != 0);
+            std::lock_guard<std::mutex> outLk(stdoutMutex);
+            std::printf("OK\n");
+            std::fflush(stdout);
+        } else if (cmd == "BP_CLEAR_HITS") {
+            int32_t bpId = 0;
+            iss >> bpId;
+            if (bpId <= 0) bpManager.clearAllHits();
+            else bpManager.clearHits(bpId);
+            std::lock_guard<std::mutex> outLk(stdoutMutex);
+            std::printf("OK\n");
+            std::fflush(stdout);
+        } else if (cmd == "BP_STOP_ALL") {
+            bpManager.stopAll();
+            std::lock_guard<std::mutex> outLk(stdoutMutex);
+            std::printf("OK\n");
+            std::fflush(stdout);
+        } else if (cmd == "BP_SNAPSHOT") {
+            std::string json = bpManager.snapshotsToJson();
+            std::lock_guard<std::mutex> outLk(stdoutMutex);
+            std::printf("OK %s\n", json.c_str());
+            std::fflush(stdout);
+        } else if (cmd == "SET_SPEED_CFG") {
+            int targetPid = io.pid();
+            double rate = 1.0;
+            iss >> targetPid >> rate;
+            if (targetPid <= 0) targetPid = io.pid();
+            char path[96];
+            std::snprintf(path, sizeof(path), "/data/local/tmp/.ggnext_spd_%d", targetPid);
+            int fd = ::open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+            bool ok = false;
+            if (fd >= 0) {
+                char buf[32];
+                int len = std::snprintf(buf, sizeof(buf), "%.4f\n", rate);
+                if (len > 0) {
+                    ok = (::write(fd, buf, static_cast<size_t>(len)) == len);
+                }
+                ::fchmod(fd, 0644);
+                ::close(fd);
+            }
+            std::lock_guard<std::mutex> outLk(stdoutMutex);
+            std::printf("%s\n", ok ? "OK" : "ERR SPEED_CFG");
+            std::fflush(stdout);
+        } else if (cmd == "ALLOC_PAGE_LOCAL") {
+            std::string hintHex;
+            size_t len = 4096;
+            int prot = PROT_READ | PROT_WRITE;
+            iss >> hintHex >> len >> prot;
+            uint64_t hint = std::strtoull(hintHex.c_str(), nullptr, 16);
+            long pageSize = ::sysconf(_SC_PAGESIZE);
+            if (pageSize <= 0) pageSize = 4096;
+            if (len == 0) len = static_cast<size_t>(pageSize);
+            void* p = ::mmap(reinterpret_cast<void*>(static_cast<uintptr_t>(hint)), len, prot, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            std::lock_guard<std::mutex> outLk(stdoutMutex);
+            if (p != MAP_FAILED) {
+                std::printf("OK %llx\n", static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(p)));
+            } else {
+                std::printf("ERR %d\n", errno);
+            }
+            std::fflush(stdout);
         } else {
             std::lock_guard<std::mutex> outLk(stdoutMutex);
             std::printf("ERR UNKNOWN_CMD\n");
@@ -697,6 +803,7 @@ int main(int argc, char** argv) {
 
     cancelToken.cancel();
     waitForScan();
+    bpManager.stopAll();
     locker.unlockAll();
     return 0;
 }

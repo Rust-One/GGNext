@@ -65,9 +65,10 @@ fun BuiltInKeyboard(
     var showHistoryTray by remember { mutableStateOf(false) }
     val screenHeightDp = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
     val isLandscapeCompact = screenHeightDp < 480
-    val gap = if (isLandscapeCompact) 3.5.dp else 5.dp
+    val gap = if (isLandscapeCompact) 4.dp else 5.dp
     val rowHeight = when {
-        isLandscapeCompact && compactRows -> 27.dp
+        isLandscapeCompact && compactRows -> 28.dp
+        isLandscapeCompact && screenHeightDp >= 370 -> 36.dp
         isLandscapeCompact -> 31.dp
         compactRows -> 36.dp
         else -> 43.dp

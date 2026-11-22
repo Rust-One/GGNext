@@ -26,10 +26,13 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.littlecodesauce.ggnext.MainActivity
 import com.littlecodesauce.ggnext.core.Session
 import com.littlecodesauce.ggnext.core.Sheet
 import com.littlecodesauce.ggnext.data.AppLog
+import com.littlecodesauce.ggnext.ui.theme.AppFontCache
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -138,7 +141,15 @@ class FloatingIconService : Service() {
         serviceScope.launch {
             Session.ui
                 .map {
-                    listOf(it.speedBarExpanded, it.speedText, it.preset, it.darkMode, it.dynamicColor, it.speedMultiplier)
+                    listOf(
+                        it.speedBarExpanded,
+                        it.speedText,
+                        it.preset,
+                        it.darkMode,
+                        it.dynamicColor,
+                        it.speedMultiplier,
+                        it.customFontPath
+                    )
                 }
                 .distinctUntilChanged()
                 .collect {
@@ -147,6 +158,7 @@ class FloatingIconService : Service() {
                     val speedTxt = cur.speedText
                     val preset = cur.preset
                     val darkMode = cur.darkMode
+                    val customTf = AppFontCache.typefaceFor(cur.customFontPath)
                     val isNight = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
                     val isDark = when (darkMode) {
                         com.littlecodesauce.ggnext.ui.theme.DarkMode.LIGHT -> false
@@ -166,10 +178,14 @@ class FloatingIconService : Service() {
                         (c.value shr 32).toInt()
                     }
                     ball?.setThemeAccent(accentColorInt, isDark)
+                    ball?.setCustomTypeface(customTf)
 
                     val btnBgColor = if (isDark) Color.parseColor("#EE221C20") else Color.parseColor("#EEFFFFFF")
                     val btnBorderColor = (accentColorInt and 0x00FFFFFF) or (if (isDark) (0x88 shl 24) else (0xBB shl 24))
                     val btnTextColor = if (isDark) Color.parseColor("#F2E8EC") else Color.parseColor("#121217")
+
+                    val boldTf = customTf?.let { Typeface.create(it, Typeface.BOLD) } ?: Typeface.DEFAULT_BOLD
+                    val monoTf = customTf ?: Typeface.MONOSPACE
 
                     speedDecBtn?.background = GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
@@ -178,6 +194,7 @@ class FloatingIconService : Service() {
                         setStroke(dp(1), btnBorderColor)
                     }
                     speedDecBtn?.setTextColor(btnTextColor)
+                    speedDecBtn?.typeface = boldTf
 
                     speedIncBtn?.background = GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
@@ -186,6 +203,7 @@ class FloatingIconService : Service() {
                         setStroke(dp(1), btnBorderColor)
                     }
                     speedIncBtn?.setTextColor(btnTextColor)
+                    speedIncBtn?.typeface = boldTf
 
                     speedLabel?.background = GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
@@ -194,6 +212,7 @@ class FloatingIconService : Service() {
                         setStroke(dp(1), btnBorderColor)
                     }
                     speedLabel?.setTextColor(btnTextColor)
+                    speedLabel?.typeface = monoTf
 
                     speedDecBtn?.visibility = if (expanded) View.VISIBLE else View.GONE
                     speedIncBtn?.visibility = if (expanded) View.VISIBLE else View.GONE
@@ -479,19 +498,37 @@ class FloatingIconService : Service() {
         val compose = ComposePanel(this) { hidePanel() }
         compose.attach(root)
 
+        // 严格避让顶部系统状态栏与刘海区域：移除 FLAG_LAYOUT_IN_SCREEN / FLAG_LAYOUT_NO_LIMITS，
+        // 同时监听 WindowInsets 按窗口实际屏幕 Y 坐标动态补足顶部安全留白（绝不双倍叠加）
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val sysBars = insets.getInsets(WindowInsetsCompat.Type.statusBars())
+            val cutout = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
+            val requiredTop = maxOf(sysBars.top, cutout.top)
+            val loc = IntArray(2)
+            v.getLocationOnScreen(loc)
+            val windowTopY = loc[1].coerceAtLeast(0)
+            val extraTop = (requiredTop - windowTopY).coerceAtLeast(0)
+            if (v.paddingTop != extraTop) {
+                v.setPadding(0, extraTop, 0, 0)
+            }
+            insets
+        }
+
         val lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             overlayType(),
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             dimAmount = 0f
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                fitInsetsTypes = android.view.WindowInsets.Type.statusBars() or
+                    android.view.WindowInsets.Type.displayCutout()
             }
             @Suppress("DEPRECATION")
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
@@ -513,6 +550,7 @@ class FloatingIconService : Service() {
             panelShown = true
             OverlayState.panelAttachedToWindow = true
             Session.setPanelVisible(true)
+            root.post { ViewCompat.requestApplyInsets(root) }
         } else {
             OverlayState.panelAttachedToWindow = false
             Session.setPanelVisible(true)
@@ -583,6 +621,11 @@ class FloatingIconService : Service() {
         var showProgress = false
         var isPressedState = false
         private val rect = RectF()
+
+        fun setCustomTypeface(tf: Typeface?) {
+            fg.typeface = tf?.let { Typeface.create(it, Typeface.BOLD) } ?: Typeface.DEFAULT_BOLD
+            invalidate()
+        }
 
         fun setThemeAccent(accentColor: Int, isDark: Boolean = true) {
             outerRing.color = accentColor

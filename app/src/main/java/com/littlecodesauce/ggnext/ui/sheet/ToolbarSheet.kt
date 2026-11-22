@@ -73,7 +73,9 @@ import kotlinx.coroutines.launch
 @Composable
 fun ToolbarSheet(ui: Ui) {
     var tab by remember {
-        mutableStateOf(if (ui.tab == NextTab.SETTINGS) NextTab.SEARCH_LIST else ui.tab)
+        mutableStateOf(
+            if (ui.tab == NextTab.SETTINGS || ui.tab == NextTab.DEBUG) NextTab.SEARCH_LIST else ui.tab
+        )
     }
 
     val pinnedList = ui.pinnedTools[tab] ?: Session.pinnedToolList(tab)
@@ -448,7 +450,11 @@ fun ToolbarSheet(ui: Ui) {
 
 @Composable
 fun ToolbarPickSheet(ui: Ui) {
-    var tab by remember { mutableStateOf(if (ui.tab == NextTab.SETTINGS) NextTab.SEARCH_LIST else ui.tab) }
+    var tab by remember {
+        mutableStateOf(
+            if (ui.tab == NextTab.SETTINGS || ui.tab == NextTab.DEBUG) NextTab.SEARCH_LIST else ui.tab
+        )
+    }
     val current = ui.tools[tab] ?: Session.toolList(tab)
     NextSheetCard(
         title = "增删工具",

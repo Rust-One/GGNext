@@ -86,9 +86,10 @@ fun WavySlider(
             .fillMaxWidth()
             .height(30.dp)
             .pointerInput(minVal, maxVal, steps) {
+                val touchSlop = viewConfiguration.touchSlop
                 awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    isDragging = true
+                    val down = awaitFirstDown(requireUnconsumed = true)
+                    val downPos = down.position
                     val padPx = 10.dp.toPx()
                     fun updateAt(x: Float) {
                         val usableWidth = (size.width - padPx * 2f).coerceAtLeast(1f)
@@ -100,15 +101,52 @@ fun WavySlider(
                         val nextVal = (minVal + rawFrac * (maxVal - minVal)).coerceIn(minVal, maxVal)
                         currentOnValueChange(nextVal)
                     }
-                    updateAt(down.position.x)
-                    do {
+
+                    var lockedHorizontal = false
+                    var abortedByVertical = false
+                    var lastX = downPos.x
+                    var canceled = false
+
+                    while (true) {
                         val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull() ?: break
-                        if (change.pressed) {
-                            updateAt(change.position.x)
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull() ?: break
+                        if (!change.pressed) {
+                            lastX = change.position.x
+                            if (change.isConsumed) canceled = true
+                            break
+                        }
+
+                        if (!lockedHorizontal) {
+                            if (change.isConsumed) {
+                                abortedByVertical = true
+                                break
+                            }
+                            val dx = kotlin.math.abs(change.position.x - downPos.x)
+                            val dy = kotlin.math.abs(change.position.y - downPos.y)
+                            // 一旦出现明显纵向位移（或纵横比偏竖直），立即放弃拦截，交给父级列表顺滑滚动
+                            if (dy > touchSlop * 0.65f && dy >= dx * 0.8f) {
+                                abortedByVertical = true
+                                break
+                            }
+                            // 仅当横向滑动显著超过 touchSlop 且明确主导方向时，才锁定为滑条拖动
+                            if (dx > touchSlop && dx > dy * 1.35f) {
+                                lockedHorizontal = true
+                                isDragging = true
+                                lastX = change.position.x
+                                updateAt(lastX)
+                                change.consume()
+                            }
+                        } else {
+                            lastX = change.position.x
+                            updateAt(lastX)
                             change.consume()
                         }
-                    } while (event.changes.any { it.pressed })
+                    }
+
+                    // 未发生垂直滚动、未拖动且未被父容器消费的干净轻点：在抬手瞬间跳转至点击位置
+                    if (!lockedHorizontal && !abortedByVertical && !canceled) {
+                        updateAt(lastX)
+                    }
                     isDragging = false
                 }
             }

@@ -317,4 +317,34 @@ object NativeMemBridge {
     @JvmStatic external fun nativeSetFreezeIntervalMs(handle: Long, intervalMs: Int)
     @JvmStatic external fun nativeUnlockAddress(handle: Long, address: Long)
     @JvmStatic external fun nativeUnlockAll(handle: Long)
+
+    // Hardware Breakpoints (Perf & Ptrace)
+    @JvmStatic external fun nativeBpAdd(
+        handle: Long,
+        pid: Int,
+        address: Long,
+        bpType: Int,
+        bpSize: Int,
+        bpMode: Int,
+        captureCallstack: Boolean
+    ): Int
+    @JvmStatic external fun nativeBpRemove(handle: Long, bpId: Int): Boolean
+    @JvmStatic external fun nativeBpSetPaused(handle: Long, bpId: Int, paused: Boolean): Boolean
+    @JvmStatic external fun nativeBpClearHits(handle: Long, bpId: Int)
+    @JvmStatic external fun nativeBpStopAll(handle: Long)
+    @JvmStatic external fun nativeBpSnapshotJson(handle: Long): String
+
+    // Dynamic Keystone & Capstone Assembly Engine
+    @JvmStatic external fun nativeLoadAsmEngine(libDir: String): String
+    @JvmStatic external fun nativeGetAsmEngineFlags(): Int
+    @JvmStatic external fun nativeAssemble(arch: Int, address: Long, code: String): ByteArray?
+    @JvmStatic external fun nativeAssembleWithError(arch: Int, address: Long, code: String): String
+    @JvmStatic external fun nativeDisassembleOne(arch: Int, address: Long, bytes: ByteArray): String
+    @JvmStatic external fun nativeDisassembleBlock(arch: Int, baseAddress: Long, bytes: ByteArray, maxInsns: Int): String
+
+    // ShadowHook + xDL Agent (Speedhack & Local Page Allocation)
+    @JvmStatic external fun nativeAgentSetSpeed(rate: Float): Boolean
+    @JvmStatic external fun nativeAgentGetSpeed(): Float
+    @JvmStatic external fun nativeAgentAllocPage(hintAddr: Long, size: Int, prot: Int): Long
+    @JvmStatic external fun nativeVerifyXdlAndHook(): Boolean
 }

@@ -156,11 +156,27 @@ fun SearchSheet(ui: Ui) {
         label = "typeArrowRot"
     )
 
+    val isGroupQuery = remember(tf.text) {
+        com.littlecodesauce.ggnext.engine.NumberParser.isGroupExpression(tf.text)
+    }
+    val (groupOrdered, groupArea) = remember(tf.text) {
+        com.littlecodesauce.ggnext.engine.NumberParser.extractGroupMeta(tf.text)
+    }
+
     NextSheetCard(
         title = "精确搜索",
         subtitle = "支持单值、范围 (A~B)、联合 (A;B:512)、异或 (AXK) 与 HEX",
         onDismiss = Session::closeSheet,
-        maxBodyHeight = 780
+        maxBodyHeight = 780,
+        showSideKeyboard = keyboardOn,
+        sideKeyboard = {
+            BuiltInKeyboard(
+                value = activeTf,
+                onValueChange = ::updateActiveField,
+                onHistory = { Session.openSheet(Sheet.HISTORY) },
+                onDismiss = { Session.updateSearch { s -> s.copy(keyboardVisible = false) } }
+            )
+        }
     ) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             Text(
@@ -264,6 +280,75 @@ fun SearchSheet(ui: Ui) {
                     val nextExp = !ui.search.expanded
                     if (!nextExp) activeField = 0
                     Session.updateSearch { s -> s.copy(expanded = nextExp) }
+                }
+            }
+
+            // 联合搜索快捷选项：显示「按顺序」勾选与默认/当前冒号距离（如 :512 或 ::512）
+            AnimatedVisibility(isGroupQuery, enter = expandEnter(), exit = expandExit()) {
+                val sep = if (groupOrdered) "::" else ":"
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, start = 4.dp, end = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickableWithTooltip {
+                            val nextExpr = com.littlecodesauce.ggnext.engine.NumberParser.normalizeGroupExpression(
+                                tf.text,
+                                ordered = !groupOrdered,
+                                area = groupArea
+                            )
+                            activeField = 0
+                            tf = TextFieldValue(nextExpr, TextRange(nextExpr.length))
+                            Session.updateSearch { s -> s.copy(text = nextExpr) }
+                        }
+                    ) {
+                        GgCheckBox(
+                            checked = groupOrdered,
+                            onCheckedChange = { checked ->
+                                val nextExpr = com.littlecodesauce.ggnext.engine.NumberParser.normalizeGroupExpression(
+                                    tf.text,
+                                    ordered = checked,
+                                    area = groupArea
+                                )
+                                activeField = 0
+                                tf = TextFieldValue(nextExpr, TextRange(nextExpr.length))
+                                Session.updateSearch { s -> s.copy(text = nextExpr) }
+                            },
+                            size = 19.dp,
+                            accentColor = Rose.Primary
+                        )
+                        Spacer(Modifier.width(7.dp))
+                        Text(tr("按顺序"), color = Rose.Text, fontSize = fsp(13.5f))
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Box(
+                        Modifier
+                            .height(30.dp)
+                            .background(Rose.ChipSelected, RoundedCornerShape(8.dp))
+                            .border(1.dp, Rose.Primary.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
+                            .clickableWithTooltip(tooltip = tr("点击编辑联合搜索距离")) {
+                                val nextExpr = com.littlecodesauce.ggnext.engine.NumberParser.normalizeGroupExpression(
+                                    tf.text,
+                                    ordered = groupOrdered,
+                                    area = groupArea
+                                )
+                                val sepIdx = nextExpr.lastIndexOf(sep)
+                                val selStart = if (sepIdx >= 0) sepIdx + sep.length else nextExpr.length
+                                activeField = 0
+                                tf = TextFieldValue(nextExpr, TextRange(selStart, nextExpr.length))
+                                Session.updateSearch { s -> s.copy(text = nextExpr) }
+                            }
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "$sep$groupArea",
+                            style = monoStyle(13, Rose.Primary, FontWeight.SemiBold)
+                        )
+                    }
                 }
             }
 
@@ -649,30 +734,23 @@ fun SearchSheet(ui: Ui) {
                 )
             }
 
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Spacer(Modifier.height(8.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 RoseButton(
-                    "改善搜索",
-                    Modifier.weight(1f).height(44.dp),
+                    label = "改善",
+                    modifier = Modifier.width(72.dp).height(38.dp),
                     enabled = ui.rawResults.isNotEmpty()
                 ) { Session.runSearch(false) }
+                Spacer(Modifier.width(8.dp))
                 RoseButton(
-                    "新搜索",
-                    Modifier.weight(1f).height(44.dp),
+                    label = "新搜索",
+                    modifier = Modifier.width(78.dp).height(38.dp),
                     filled = true
                 ) { Session.runSearch(true) }
-            }
-
-            AnimatedVisibility(keyboardOn, enter = expandEnter(), exit = expandExit()) {
-                Column {
-                    Spacer(Modifier.height(10.dp))
-                    BuiltInKeyboard(
-                        value = activeTf,
-                        onValueChange = ::updateActiveField,
-                        onHistory = { Session.openSheet(Sheet.HISTORY) },
-                        onDismiss = { Session.updateSearch { s -> s.copy(keyboardVisible = false) } }
-                    )
-                }
             }
         }
     }
@@ -770,31 +848,42 @@ fun FilterSearchSheet(ui: Ui) {
         modifier = Modifier.fillMaxWidth(),
         contentAlignment = Alignment.Center
     ) {
-        val fallbackHeightDp = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.coerceAtLeast(240)
+        val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+        val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE ||
+            configuration.screenWidthDp > configuration.screenHeightDp
+        val fallbackHeightDp = configuration.screenHeightDp.coerceAtLeast(240)
         val availHeightDp = if (maxHeight.value.isFinite() && maxHeight.value > 120f) {
             maxHeight.value.toInt()
         } else {
             fallbackHeightDp
         }
         val maxCardHeight = (availHeightDp - 10).coerceAtLeast(160).dp
-        Column(
+        val useSideKeyboard = isLandscape && showKeyboard
+
+        Row(
             Modifier
                 .padding(horizontal = 10.dp, vertical = 4.dp)
-                .widthIn(max = 560.dp)
+                .widthIn(max = if (useSideKeyboard) 880.dp else 560.dp)
                 .fillMaxWidth()
                 .heightIn(max = maxCardHeight)
                 .clickableNoRipple(remember { MutableInteractionSource() }) {}
                 .background(Rose.Card.copy(alpha = cardAlpha), RoundedCornerShape(corner))
                 .border(1.dp, Rose.Divider, RoundedCornerShape(corner))
-                .padding(top = 8.dp, bottom = 6.dp)
+                .padding(top = 8.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.Top
         ) {
             Column(
                 Modifier
-                    .fillMaxWidth()
-                    .weight(1f, fill = false)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 14.dp)
+                    .weight(if (useSideKeyboard) 1.12f else 1f)
+                    .heightIn(max = maxCardHeight)
             ) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 14.dp)
+                ) {
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -1123,14 +1212,16 @@ fun FilterSearchSheet(ui: Ui) {
                 st = st.copy(formatUtf16 = it)
             }
 
-            AnimatedVisibility(showKeyboard, enter = expandEnter(), exit = expandExit()) {
-                Column(Modifier.padding(vertical = 4.dp)) {
-                    BuiltInKeyboard(
-                        value = activeTf,
-                        onValueChange = ::onActiveTfChange,
-                        onHistory = { Session.openSheet(Sheet.HISTORY) },
-                        onDismiss = { showKeyboard = false }
-                    )
+            if (!useSideKeyboard) {
+                AnimatedVisibility(showKeyboard, enter = expandEnter(), exit = expandExit()) {
+                    Column(Modifier.padding(vertical = 4.dp)) {
+                        BuiltInKeyboard(
+                            value = activeTf,
+                            onValueChange = ::onActiveTfChange,
+                            onHistory = { Session.openSheet(Sheet.HISTORY) },
+                            onDismiss = { showKeyboard = false }
+                        )
+                    }
                 }
             }
         }
@@ -1170,7 +1261,23 @@ fun FilterSearchSheet(ui: Ui) {
                 Session.applyFilter(st)
             }
         }
-    }
+            }
+            if (useSideKeyboard) {
+                Box(
+                    Modifier
+                        .weight(0.92f)
+                        .padding(end = 10.dp, top = 4.dp, bottom = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    BuiltInKeyboard(
+                        value = activeTf,
+                        onValueChange = ::onActiveTfChange,
+                        onHistory = { Session.openSheet(Sheet.HISTORY) },
+                        onDismiss = { showKeyboard = false }
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -1298,7 +1405,7 @@ fun FuzzySearchSheet(ui: Ui) {
     var showTypeList by remember { mutableStateOf(true) }
 
     // 界面问题 7：统一提升模糊搜索全部输入框状态，支持多输入栏焦点与内置软键盘无缝切换
-    var deltaTf by remember(fz.deltaText) {
+    var deltaTf by remember {
         val sel = if (hasResults) TextRange(0, fz.deltaText.length) else TextRange(fz.deltaText.length)
         mutableStateOf(TextFieldValue(fz.deltaText, sel))
     }
@@ -1318,7 +1425,7 @@ fun FuzzySearchSheet(ui: Ui) {
     var distTf by remember {
         mutableStateOf(TextFieldValue(fz.nearbyDistance, TextRange(fz.nearbyDistance.length)))
     }
-    var onlyNthTf by remember(fz.onlyNth) {
+    var onlyNthTf by remember {
         mutableStateOf(TextFieldValue(fz.onlyNth, TextRange(fz.onlyNth.length)))
     }
     // 0: deltaTf, 1: fromTf, 2: toTf, 3: addrTf, 4: distTf, 5: onlyNthTf
@@ -1371,26 +1478,39 @@ fun FuzzySearchSheet(ui: Ui) {
     val metrics = LocalUiMetrics.current
     val corner = metrics.dialogCorner.dp
     val cardAlpha = (metrics.bgOpacity + 0.04f).coerceIn(0.55f, 1.0f)
+    val showFuzzyKeyboard = if (!hasResults) (fz.extended && fz.rangeMode != 0 && fz.keyboardVisible) else fz.keyboardVisible
+
     BoxWithConstraints(
         modifier = Modifier.fillMaxWidth(),
         contentAlignment = Alignment.Center
     ) {
-        val fallbackHeightDp = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.coerceAtLeast(240)
+        val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+        val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE ||
+            configuration.screenWidthDp > configuration.screenHeightDp
+        val fallbackHeightDp = configuration.screenHeightDp.coerceAtLeast(240)
         val availHeightDp = if (maxHeight.value.isFinite() && maxHeight.value > 120f) {
             maxHeight.value.toInt()
         } else {
             fallbackHeightDp
         }
         val maxCardHeight = (availHeightDp - 10).coerceAtLeast(160).dp
-        Column(
+        val useSideKeyboard = isLandscape && showFuzzyKeyboard
+
+        Row(
             Modifier
                 .padding(horizontal = 10.dp, vertical = 4.dp)
-                .widthIn(max = 560.dp)
+                .widthIn(max = if (useSideKeyboard) 880.dp else 560.dp)
                 .fillMaxWidth()
                 .heightIn(max = maxCardHeight)
                 .clickableNoRipple(remember { MutableInteractionSource() }) {}
                 .background(Rose.Card.copy(alpha = cardAlpha), RoundedCornerShape(corner))
-                .border(1.dp, Rose.Divider, RoundedCornerShape(corner))
+                .border(1.dp, Rose.Divider, RoundedCornerShape(corner)),
+            verticalAlignment = Alignment.Top
+        ) {
+        Column(
+            Modifier
+                .weight(if (useSideKeyboard) 1.12f else 1f)
+                .heightIn(max = maxCardHeight)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
@@ -1745,37 +1865,42 @@ fun FuzzySearchSheet(ui: Ui) {
             Spacer(Modifier.height(12.dp))
             Row(
                 Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 RoseButton(
                     label = "取消",
-                    modifier = Modifier.weight(1f).height(42.dp)
+                    modifier = Modifier.width(68.dp).height(38.dp)
                 ) {
                     Session.closeSheet()
                 }
+                Spacer(Modifier.width(8.dp))
                 RoseButton(
                     label = if (fz.extended) "收起" else "更多",
-                    modifier = Modifier.weight(1f).height(42.dp)
+                    modifier = Modifier.width(68.dp).height(38.dp)
                 ) {
                     Session.updateFuzzy { it.copy(extended = !it.extended) }
                 }
+                Spacer(Modifier.width(8.dp))
                 RoseButton(
                     label = "搜索",
                     filled = true,
-                    modifier = Modifier.weight(1.2f).height(42.dp)
+                    modifier = Modifier.width(74.dp).height(38.dp)
                 ) {
                     Session.runFuzzySearch(ValueType.SIGN_EQUAL, forceNew = true)
                 }
             }
 
-            AnimatedVisibility(fz.extended && fz.rangeMode != 0 && fz.keyboardVisible, enter = expandEnter(), exit = expandExit()) {
-                Column(Modifier.padding(top = 8.dp)) {
-                    BuiltInKeyboard(
-                        value = activeFuzzyTf,
-                        onValueChange = ::onActiveChange,
-                        onHistory = { Session.openSheet(Sheet.HISTORY) },
-                        onDismiss = { Session.updateFuzzy { it.copy(keyboardVisible = false) } }
-                    )
+            if (!useSideKeyboard) {
+                AnimatedVisibility(fz.extended && fz.rangeMode != 0 && fz.keyboardVisible, enter = expandEnter(), exit = expandExit()) {
+                    Column(Modifier.padding(top = 8.dp)) {
+                        BuiltInKeyboard(
+                            value = activeFuzzyTf,
+                            onValueChange = ::onActiveChange,
+                            onHistory = { Session.openSheet(Sheet.HISTORY) },
+                            onDismiss = { Session.updateFuzzy { it.copy(keyboardVisible = false) } }
+                        )
+                    }
                 }
             }
         } else {
@@ -1976,15 +2101,33 @@ fun FuzzySearchSheet(ui: Ui) {
                 }
             }
 
-            AnimatedVisibility(fz.keyboardVisible, enter = expandEnter(), exit = expandExit()) {
-                Column(Modifier.padding(top = 8.dp)) {
-                    BuiltInKeyboard(
-                        value = activeFuzzyTf,
-                        onValueChange = ::onActiveChange,
-                        onHistory = { Session.openSheet(Sheet.HISTORY) },
-                        onDismiss = { Session.updateFuzzy { it.copy(keyboardVisible = false) } }
-                    )
+            if (!useSideKeyboard) {
+                AnimatedVisibility(fz.keyboardVisible, enter = expandEnter(), exit = expandExit()) {
+                    Column(Modifier.padding(top = 8.dp)) {
+                        BuiltInKeyboard(
+                            value = activeFuzzyTf,
+                            onValueChange = ::onActiveChange,
+                            onHistory = { Session.openSheet(Sheet.HISTORY) },
+                            onDismiss = { Session.updateFuzzy { it.copy(keyboardVisible = false) } }
+                        )
+                    }
                 }
+            }
+        }
+        }
+        if (useSideKeyboard) {
+            Box(
+                Modifier
+                    .weight(0.92f)
+                    .padding(end = 10.dp, top = 8.dp, bottom = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                BuiltInKeyboard(
+                    value = activeFuzzyTf,
+                    onValueChange = ::onActiveChange,
+                    onHistory = { Session.openSheet(Sheet.HISTORY) },
+                    onDismiss = { Session.updateFuzzy { it.copy(keyboardVisible = false) } }
+                )
             }
         }
         }
@@ -2052,7 +2195,24 @@ fun MaskSearchSheet(ui: Ui) {
         title = "地址蒙版搜索",
         subtitle = "支持使用 ? 通配符匹配特定偏移规律的内存地址",
         onDismiss = Session::closeSheet,
-        maxBodyHeight = 760
+        maxBodyHeight = 760,
+        showSideKeyboard = showKeyboard,
+        sideKeyboard = {
+            BuiltInKeyboard(
+                value = if (focusMask) maskTf else addrTf,
+                onValueChange = { next ->
+                    if (focusMask) {
+                        maskTf = next
+                        Session.updateSearch { s -> s.copy(mask = next.text) }
+                    } else {
+                        addrTf = next
+                        Session.updateSearch { s -> s.copy(text = next.text) }
+                    }
+                },
+                onHistory = { Session.openSheet(Sheet.HISTORY) },
+                onDismiss = { showKeyboard = false }
+            )
+        }
     ) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             Row(
@@ -2133,31 +2293,25 @@ fun MaskSearchSheet(ui: Ui) {
             Spacer(Modifier.height(6.dp))
             Text(tr("最终合成蒙版: $resultantMask"), style = monoStyle(12, Rose.Green))
             Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                RoseButton("改善结果", Modifier.weight(1f), enabled = ui.rawResults.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RoseButton(
+                    label = "改善",
+                    modifier = Modifier.width(72.dp).height(38.dp),
+                    enabled = ui.rawResults.isNotEmpty()
+                ) {
                     Session.runMaskSearch(false)
                 }
-                RoseButton("新蒙版搜索", Modifier.weight(1f), filled = true) {
+                Spacer(Modifier.width(8.dp))
+                RoseButton(
+                    label = "新搜索",
+                    modifier = Modifier.width(78.dp).height(38.dp),
+                    filled = true
+                ) {
                     Session.runMaskSearch(true)
-                }
-            }
-            AnimatedVisibility(showKeyboard, enter = expandEnter(), exit = expandExit()) {
-                Column {
-                    Spacer(Modifier.height(10.dp))
-                    BuiltInKeyboard(
-                        value = if (focusMask) maskTf else addrTf,
-                        onValueChange = { next ->
-                            if (focusMask) {
-                                maskTf = next
-                                Session.updateSearch { s -> s.copy(mask = next.text) }
-                            } else {
-                                addrTf = next
-                                Session.updateSearch { s -> s.copy(text = next.text) }
-                            }
-                        },
-                        onHistory = { Session.openSheet(Sheet.HISTORY) },
-                        onDismiss = { showKeyboard = false }
-                    )
                 }
             }
         }
@@ -2185,7 +2339,24 @@ fun PointerSearchSheet(ui: Ui) {
         title = "指针搜索",
         subtitle = "查找指向目标地址及最大偏移范围内的指针链",
         onDismiss = Session::closeSheet,
-        maxBodyHeight = 760
+        maxBodyHeight = 760,
+        showSideKeyboard = showKeyboard,
+        sideKeyboard = {
+            BuiltInKeyboard(
+                value = if (focusOffset) offsetTf else addrTf,
+                onValueChange = { next ->
+                    if (focusOffset) {
+                        offsetTf = next
+                        Session.updateSearch { s -> s.copy(offset = next.text) }
+                    } else {
+                        addrTf = next
+                        Session.updateSearch { s -> s.copy(text = next.text) }
+                    }
+                },
+                onHistory = { Session.openSheet(Sheet.HISTORY) },
+                onDismiss = { showKeyboard = false }
+            )
+        }
     ) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             Row(
@@ -2297,34 +2468,27 @@ fun PointerSearchSheet(ui: Ui) {
             }
 
             Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                RoseButton("改善结果", Modifier.weight(1f), enabled = ui.rawResults.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RoseButton(
+                    label = "改善",
+                    modifier = Modifier.width(72.dp).height(38.dp),
+                    enabled = ui.rawResults.isNotEmpty()
+                ) {
                     Session.updateSearch { s -> s.copy(text = addrTf.text, offset = offsetTf.text) }
                     Session.runPointerSearch(false)
                 }
-                RoseButton("开始指针搜索", Modifier.weight(1f), filled = true) {
+                Spacer(Modifier.width(8.dp))
+                RoseButton(
+                    label = "新搜索",
+                    modifier = Modifier.width(78.dp).height(38.dp),
+                    filled = true
+                ) {
                     Session.updateSearch { s -> s.copy(text = addrTf.text, offset = offsetTf.text) }
                     Session.runPointerSearch(true)
-                }
-            }
-            
-            AnimatedVisibility(showKeyboard, enter = expandEnter(), exit = expandExit()) {
-                Column {
-                    Spacer(Modifier.height(10.dp))
-                    BuiltInKeyboard(
-                        value = if (focusOffset) offsetTf else addrTf,
-                        onValueChange = { next ->
-                            if (focusOffset) {
-                                offsetTf = next
-                                Session.updateSearch { s -> s.copy(offset = next.text) }
-                            } else {
-                                addrTf = next
-                                Session.updateSearch { s -> s.copy(text = next.text) }
-                            }
-                        },
-                        onHistory = { Session.openSheet(Sheet.HISTORY) },
-                        onDismiss = { showKeyboard = false }
-                    )
                 }
             }
         }

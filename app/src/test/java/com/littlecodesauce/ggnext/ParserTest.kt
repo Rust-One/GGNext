@@ -101,7 +101,7 @@ class ParserTest {
     fun compareTypedValuesOrdering() {
         val engine = MemoryEngine()
         assertEquals(-1, engine.compareTypedValues(-5L, 10L, ValueType.DWORD))
-        assertEquals(0, engine.compareTypedValues(Float.floatToRawIntBits(3.5f).toLong(), Float.floatToRawIntBits(3.5f).toLong(), ValueType.FLOAT))
-        assertTrue(engine.compareTypedValues(Float.floatToRawIntBits(10.0f).toLong(), Float.floatToRawIntBits(2.0f).toLong(), ValueType.FLOAT) > 0)
+        assertEquals(0, engine.compareTypedValues(3.5f.toRawBits().toLong(), 3.5f.toRawBits().toLong(), ValueType.FLOAT))
+        assertTrue(engine.compareTypedValues(10.0f.toRawBits().toLong(), 2.0f.toRawBits().toLong(), ValueType.FLOAT) > 0)
     }
 }

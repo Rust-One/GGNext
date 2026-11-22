@@ -11,10 +11,16 @@ import com.littlecodesauce.ggnext.data.SearchHistory
 import com.littlecodesauce.ggnext.data.SettingKeys
 import com.littlecodesauce.ggnext.data.SettingsRepository
 import com.littlecodesauce.ggnext.data.SettingsSpecs
+import com.littlecodesauce.ggnext.engine.AsmEngineManager
 import com.littlecodesauce.ggnext.engine.Formatter
 import com.littlecodesauce.ggnext.engine.MemoryEngine
 import com.littlecodesauce.ggnext.engine.NumberParser
 import com.littlecodesauce.ggnext.engine.Shell
+import com.littlecodesauce.ggnext.model.AsmArch
+import com.littlecodesauce.ggnext.model.AsmPackStatus
+import com.littlecodesauce.ggnext.model.BpMode
+import com.littlecodesauce.ggnext.model.BpSession
+import com.littlecodesauce.ggnext.model.BpType
 import com.littlecodesauce.ggnext.model.MemoryItem
 import com.littlecodesauce.ggnext.model.MemoryRegion
 import com.littlecodesauce.ggnext.model.TargetProcess
@@ -47,12 +53,20 @@ import java.io.File
 import java.util.Locale
 import kotlin.math.abs
 
-/** 四个导航页 */
+/** 五个导航页 */
 enum class NextTab(val label: String) {
     SETTINGS("设置"),
     SEARCH_LIST("搜索列表"),
     SAVED_LIST("保存列表"),
-    MEMORY("内存")
+    MEMORY("内存"),
+    DEBUG("调试")
+}
+
+/** 主页底部三个导航页（主页 / 扩展 / 设置） */
+enum class HomeTab(val label: String) {
+    HOME("主页"),
+    EXTENSIONS("扩展"),
+    SETTINGS("设置")
 }
 
 /** 工作模式枚举：Root 模式 与 免 Root 模式（共享 UID / 虚拟空间沙盒） */
@@ -97,7 +111,9 @@ enum class Sheet {
     FILE_MANAGER,
     COPY_MEMORY,
     DUMP,
-    ALLOCATE
+    ALLOCATE,
+    BREAKPOINT,
+    WRITE_ASM
 }
 
 /** 列表文件操作模式：严格区分只读载入与只写保存/导出 */
@@ -111,7 +127,9 @@ enum class FileSheetMode {
 enum class FileBrowserTarget {
     SCRIPT,
     FILE_MANAGER,
-    DUMP
+    DUMP,
+    FONT,
+    ASM_PACK
 }
 
 data class FileBrowserConfig(
@@ -274,6 +292,9 @@ data class Ui(
     val preset: ThemePreset = ThemePreset.ROSE,
     val darkMode: DarkMode = DarkMode.DARK,
     val dynamicColor: Boolean = false,
+    val customFontPath: String = "",
+    val customFontName: String = "",
+    val managedFonts: List<com.littlecodesauce.ggnext.ui.theme.AppFontCache.ImportedFont> = emptyList(),
 
     val tools: Map<NextTab, List<ToolId>> = emptyMap(),
     val pinnedTools: Map<NextTab, List<ToolId>> = emptyMap(),
@@ -293,7 +314,13 @@ data class Ui(
     val panelVisible: Boolean = false,
     val speedBarExpanded: Boolean = false,
     val speedMultiplier: Float = 1.0f,
-    val homeSettingsOpen: Boolean = false
+    val speedWrapEnabled: Boolean = false,
+    val homeSettingsOpen: Boolean = false,
+    val homeTab: HomeTab = HomeTab.HOME,
+    val breakpoints: List<BpSession> = emptyList(),
+    val selectedBpIds: Set<Int> = emptySet(),
+    val asmPack: AsmPackStatus = AsmPackStatus(),
+    val memoryDisasm: Map<Long, String> = emptyMap()
 ) {
     /** 当前栈顶弹窗（派生属性，保持调用方兼容） */
     val sheet: Sheet get() = sheetStack.lastOrNull() ?: Sheet.NONE
@@ -308,7 +335,7 @@ data class Ui(
             NextTab.SAVED_LIST -> savedSelectedCount
             NextTab.MEMORY -> memorySelectedCount
             NextTab.SEARCH_LIST -> searchSelectedCount
-            NextTab.SETTINGS -> 0
+            NextTab.SETTINGS, NextTab.DEBUG -> 0
         }
 
     fun isSearchItemSelected(item: MemoryItem): Boolean =
@@ -328,7 +355,7 @@ data class Ui(
                 NextTab.SEARCH_LIST -> DEFAULT_TOOLS_SEARCH
                 NextTab.SAVED_LIST -> DEFAULT_TOOLS_SAVED
                 NextTab.MEMORY -> DEFAULT_TOOLS_MEMORY
-                NextTab.SETTINGS -> emptyList()
+                NextTab.SETTINGS, NextTab.DEBUG -> emptyList()
             }
             val pinned = currentPinnedTools.toSet()
             return base.filter { it !in pinned }
@@ -393,6 +420,8 @@ object Session {
     private var persistScriptHistJob: Job? = null
     @Volatile
     private var persistSavedListJob: Job? = null
+    @Volatile
+    private var bpPollingJob: Job? = null
 
     private val attachMutex = Mutex()
     private val listScrollPositions = java.util.concurrent.ConcurrentHashMap<String, Pair<Int, Int>>()
@@ -597,6 +626,8 @@ object Session {
                 }
                 st.copy(hasRootPermission = rootOk, workMode = resolvedMode)
             }
+            val asmStatus = AsmEngineManager.autoLoad(app)
+            _ui.update { it.copy(asmPack = asmStatus) }
         }
 
         // 启动时单次磁盘水合（避免 DataStore 写入回声反复覆盖内存中的实时修改/区域勾选），
@@ -695,6 +726,19 @@ object Session {
                     parseToolOrderCsv(merged["pinned_tools_${t.name}"])?.let { restoredPinned[t] = it }
                 }
 
+                val savedFontPath = merged["custom_font_path"].orEmpty()
+                val validFontPath = if (savedFontPath.isNotBlank() && File(savedFontPath).isFile) savedFontPath else ""
+                val validFontName = if (validFontPath.isNotBlank()) {
+                    merged["custom_font_name"].orEmpty().ifBlank { File(validFontPath).name }
+                } else ""
+                val savedFontList = com.littlecodesauce.ggnext.ui.theme.AppFontCache.decodeFontList(merged["managed_fonts_json"])
+                val reconciledFonts = com.littlecodesauce.ggnext.ui.theme.AppFontCache.reconcileManagedFonts(
+                    context = appContext,
+                    saved = savedFontList,
+                    activePath = validFontPath,
+                    activeName = validFontName
+                )
+
                 st.copy(
                     settings = merged,
                     settingsLoaded = true,
@@ -703,6 +747,9 @@ object Session {
                     preset = ThemePreset.entries.firstOrNull { p -> p.name == merged["theme_preset"] } ?: st.preset,
                     darkMode = DarkMode.entries.firstOrNull { d -> d.name == merged["dark_mode"] } ?: st.darkMode,
                     dynamicColor = merged["dynamic_color"] == "1",
+                    customFontPath = validFontPath,
+                    customFontName = validFontName,
+                    managedFonts = reconciledFonts,
                     workMode = resolvedMode,
                     selectedRegions = restoredRegions,
                     filter = st.filter.copy(maxShow = restoredMaxShow),
@@ -1012,6 +1059,12 @@ object Session {
             }
             FileBrowserTarget.FILE_MANAGER -> setSetting("file_manager_path", selectedPath)
             FileBrowserTarget.DUMP -> setSetting("dump_dir_path", selectedPath)
+            FileBrowserTarget.FONT -> {
+                importCustomFontFromFile(selectedPath)
+            }
+            FileBrowserTarget.ASM_PACK -> {
+                importAsmPackFromFile(selectedPath)
+            }
         }
         _ui.update { st ->
             val nextStack = if (st.sheetStack.size > 1 && st.sheetStack.lastOrNull() == Sheet.FILE_BROWSER) {
@@ -1023,6 +1076,7 @@ object Session {
                 FileBrowserTarget.SCRIPT -> st.copy(scriptPath = selectedPath, sheetStack = nextStack)
                 FileBrowserTarget.FILE_MANAGER -> st.copy(fileManagerPath = selectedPath, sheetStack = nextStack)
                 FileBrowserTarget.DUMP -> st.copy(dumpDirPath = selectedPath, sheetStack = nextStack)
+                FileBrowserTarget.FONT, FileBrowserTarget.ASM_PACK -> st.copy(sheetStack = nextStack)
             }
         }
     }
@@ -1158,6 +1212,7 @@ object Session {
         setPreset(ThemePreset.ROSE)
         setDarkMode(DarkMode.DARK)
         setDynamicColor(false)
+        resetCustomFont(silent = true)
         setSetting("font_scale", "0.88")
         setSetting("dialog_corner", "12")
         setSetting("bg_opacity", "0.96")
@@ -1171,13 +1226,161 @@ object Session {
     fun setDarkMode(m: DarkMode) = setSetting("dark_mode", m.name)
     fun setDynamicColor(v: Boolean) = setSetting("dynamic_color", if (v) "1" else "0")
 
+    fun importCustomFontFromUri(uri: android.net.Uri) {
+        val ctx = appContext ?: return
+        scope.launch {
+            val res = withContext(Dispatchers.IO) {
+                com.littlecodesauce.ggnext.ui.theme.AppFontCache.importFromUri(ctx, uri)
+            }
+            res.onSuccess { imported ->
+                applyImportedFont(imported)
+            }.onFailure { err ->
+                toast(err.message ?: "导入字体失败")
+            }
+        }
+    }
+
+    fun importCustomFontFromFile(path: String) {
+        val ctx = appContext ?: return
+        scope.launch {
+            val res = withContext(Dispatchers.IO) {
+                com.littlecodesauce.ggnext.ui.theme.AppFontCache.importFromFile(ctx, path)
+            }
+            res.onSuccess { imported ->
+                applyImportedFont(imported)
+            }.onFailure { err ->
+                toast(err.message ?: "导入字体失败")
+            }
+        }
+    }
+
+    private fun applyImportedFont(imported: com.littlecodesauce.ggnext.ui.theme.AppFontCache.ImportedFont) {
+        var nextFonts: List<com.littlecodesauce.ggnext.ui.theme.AppFontCache.ImportedFont> = emptyList()
+        _ui.update { st ->
+            val updated = (listOf(imported) + st.managedFonts.filterNot { it.path == imported.path })
+            nextFonts = updated
+            val json = com.littlecodesauce.ggnext.ui.theme.AppFontCache.encodeFontList(updated)
+            st.copy(
+                settings = st.settings +
+                    ("custom_font_path" to imported.path) +
+                    ("custom_font_name" to imported.displayName) +
+                    ("managed_fonts_json" to json),
+                customFontPath = imported.path,
+                customFontName = imported.displayName,
+                managedFonts = updated
+            )
+        }
+        val json = com.littlecodesauce.ggnext.ui.theme.AppFontCache.encodeFontList(nextFonts)
+        enqueueSettingWrite("custom_font_path", imported.path, immediate = true)
+        enqueueSettingWrite("custom_font_name", imported.displayName, immediate = true)
+        enqueueSettingWrite("managed_fonts_json", json, immediate = true)
+        toast("已导入并应用字体：${imported.displayName}")
+    }
+
+    /** 切换字体：path 为空代表切换为“系统默认” */
+    fun selectFont(path: String, displayName: String = "") {
+        if (path.isBlank()) {
+            enqueueSettingWrite("custom_font_path", "", immediate = true)
+            enqueueSettingWrite("custom_font_name", "", immediate = true)
+            _ui.update { st ->
+                st.copy(
+                    settings = st.settings + ("custom_font_path" to "") + ("custom_font_name" to ""),
+                    customFontPath = "",
+                    customFontName = ""
+                )
+            }
+            toast("已切换为系统默认字体")
+            return
+        }
+        val file = File(path)
+        if (!file.isFile || !file.canRead()) {
+            toast("字体文件不存在，已自动移除该记录")
+            deleteManagedFont(path, silent = true)
+            return
+        }
+        val resolvedName = displayName.ifBlank { file.name }
+        enqueueSettingWrite("custom_font_path", path, immediate = true)
+        enqueueSettingWrite("custom_font_name", resolvedName, immediate = true)
+        _ui.update { st ->
+            st.copy(
+                settings = st.settings + ("custom_font_path" to path) + ("custom_font_name" to resolvedName),
+                customFontPath = path,
+                customFontName = resolvedName
+            )
+        }
+        toast("已切换字体：$resolvedName")
+    }
+
+    /** 删除单个已导入的字体；若正在使用则自动回退到“系统默认” */
+    fun deleteManagedFont(path: String, silent: Boolean = false) {
+        val ctx = appContext
+        if (ctx != null) {
+            scope.launch(Dispatchers.IO) {
+                com.littlecodesauce.ggnext.ui.theme.AppFontCache.deleteManagedFont(ctx, path)
+            }
+        }
+        var nextFonts: List<com.littlecodesauce.ggnext.ui.theme.AppFontCache.ImportedFont> = emptyList()
+        var wasActive = false
+        _ui.update { st ->
+            val updated = st.managedFonts.filterNot { it.path == path }
+            nextFonts = updated
+            wasActive = st.customFontPath == path
+            val json = com.littlecodesauce.ggnext.ui.theme.AppFontCache.encodeFontList(updated)
+            st.copy(
+                settings = st.settings +
+                    ("managed_fonts_json" to json) +
+                    if (wasActive) mapOf("custom_font_path" to "", "custom_font_name" to "") else emptyMap(),
+                customFontPath = if (wasActive) "" else st.customFontPath,
+                customFontName = if (wasActive) "" else st.customFontName,
+                managedFonts = updated
+            )
+        }
+        enqueueSettingWrite("managed_fonts_json", com.littlecodesauce.ggnext.ui.theme.AppFontCache.encodeFontList(nextFonts), immediate = true)
+        if (wasActive) {
+            enqueueSettingWrite("custom_font_path", "", immediate = true)
+            enqueueSettingWrite("custom_font_name", "", immediate = true)
+        }
+        if (!silent) {
+            toast(if (wasActive) "已删除字体并恢复系统默认" else "已删除字体")
+        }
+    }
+
+    fun resetCustomFont(silent: Boolean = false) {
+        enqueueSettingWrite("custom_font_path", "", immediate = true)
+        enqueueSettingWrite("custom_font_name", "", immediate = true)
+        _ui.update { st ->
+            st.copy(
+                settings = st.settings + ("custom_font_path" to "") + ("custom_font_name" to ""),
+                customFontPath = "",
+                customFontName = ""
+            )
+        }
+        if (!silent) {
+            toast("已恢复系统默认字体")
+        }
+    }
+
     fun acceptDisclaimer() {
         _ui.update { it.copy(disclaimerAccepted = true) }
         setSetting("disclaimer_v1_accepted", "1")
     }
 
     fun setHomeSettingsOpen(open: Boolean) {
-        _ui.update { it.copy(homeSettingsOpen = open) }
+        _ui.update {
+            it.copy(
+                homeSettingsOpen = open,
+                homeTab = if (open) HomeTab.SETTINGS else HomeTab.HOME
+            )
+        }
+    }
+
+    fun selectHomeTab(tab: HomeTab) {
+        _ui.update {
+            it.copy(
+                homeTab = tab,
+                homeSettingsOpen = tab == HomeTab.SETTINGS
+            )
+        }
     }
 
     fun setFloatingBallVisible(visible: Boolean) = _ui.update {
@@ -1245,17 +1448,18 @@ object Session {
         }
     }
 
-    // ============ 悬浮球变速控制（模块 2：诚实提示暂未实现底层变速 Hook） ============
+    // ============ 悬浮球变速控制（ShadowHook + xDL Agent 真实变速） ============
 
     fun toggleSpeedBar() {
         _ui.update { st -> st.copy(speedBarExpanded = !st.speedBarExpanded) }
-        if (_ui.value.speedBarExpanded) {
-            toast("当前版本暂未实现底层变速 Hook，倍率仅作占位提示")
-        }
     }
 
     fun setSpeedBarExpanded(expanded: Boolean) = _ui.update {
         it.copy(speedBarExpanded = expanded)
+    }
+
+    fun setSpeedWrapEnabled(enabled: Boolean) {
+        _ui.update { it.copy(speedWrapEnabled = enabled) }
     }
 
     fun stepSpeed(faster: Boolean) {
@@ -1265,22 +1469,26 @@ object Session {
         }
         val nextIdx = (if (faster) idx + 1 else idx - 1).coerceIn(0, SPEED_STEPS.lastIndex)
         val nextSpeed = SPEED_STEPS[nextIdx]
-        setSetting("speed_value", nextSpeed.toString())
-        _ui.update { st -> st.copy(speedMultiplier = nextSpeed, speedBarExpanded = true) }
-        toast("当前版本暂未实现底层变速 Hook，倍率仅作占位提示")
+        _ui.update { st -> st.copy(speedBarExpanded = true) }
+        setSpeedMultiplier(nextSpeed)
     }
 
     fun setSpeedMultiplier(v: Float) {
         val clamped = v.coerceIn(0.01f, 100f)
         setSetting("speed_value", clamped.toString())
         _ui.update { it.copy(speedMultiplier = clamped) }
-        toast("当前版本暂未实现底层变速 Hook，倍率仅作占位提示")
+        val targetPkg = _ui.value.target?.packageName
+        val wrapEnabled = _ui.value.speedWrapEnabled
+        scope.launch {
+            val (_, msg) = withContext(Dispatchers.IO) {
+                engine.applySpeedMultiplier(clamped, targetPkg, enableWrapProperty = wrapEnabled)
+            }
+            toast(msg)
+        }
     }
 
     fun resetSpeed() {
-        setSetting("speed_value", "1.0")
-        _ui.update { it.copy(speedMultiplier = 1.0f) }
-        toast("当前版本暂未实现底层变速 Hook，倍率仅作占位提示")
+        setSpeedMultiplier(1.0f)
     }
 
     // ============ 进程 ============
@@ -1397,6 +1605,11 @@ object Session {
                     }
                 }
 
+                if (currentTarget != null && currentTarget.pid != resolvedProc.pid) {
+                    withContext(Dispatchers.IO) { engine.bpStopAll() }
+                    bpPollingJob?.cancel()
+                    bpPollingJob = null
+                }
                 _ui.update {
                     val pkgRegions = resolveRegionsForPackage(it.settings, resolvedProc.packageName)
                     it.copy(
@@ -1414,6 +1627,9 @@ object Session {
                         searchSelection = SelectionState.EMPTY,
                         memorySelection = SelectionState.EMPTY,
                         memoryRows = emptyList(),
+                        memoryDisasm = emptyMap(),
+                        breakpoints = if (currentTarget?.pid != resolvedProc.pid) emptyList() else it.breakpoints,
+                        selectedBpIds = if (currentTarget?.pid != resolvedProc.pid) emptySet() else it.selectedBpIds,
                         fuzzy = it.fuzzy.copy(active = false)
                     )
                 }
@@ -1732,15 +1948,19 @@ object Session {
                 toast(e.message ?: "输入有误")
                 return@launch
             }
+            val displayInput = if (parsed.kind == NumberParser.Kind.GROUP) {
+                NumberParser.normalizeGroupExpression(input, parsed.ordered, parsed.area)
+            } else input
             val startTime = System.currentTimeMillis()
-            val label = if (newSearch) "新搜索: $input" else "改善: $input"
+            val label = if (newSearch) "新搜索: $displayInput" else "改善: $displayInput"
             _searchProgressState.value = SearchProgressUi(active = true, text = label)
             _ui.update {
                 it.copy(
                     busy = true,
                     busyText = label,
                     sheetStack = emptyList(),
-                    tab = NextTab.SEARCH_LIST
+                    tab = NextTab.SEARCH_LIST,
+                    search = if (displayInput != it.search.text) it.search.copy(text = displayInput) else it.search
                 )
             }
             val type = parsed.baseType and 0x7F
@@ -1783,7 +2003,7 @@ object Session {
                 memoryFrom = memFrom,
                 memoryTo = memTo,
                 limit = computeNativeFetchLimit(st.filter),
-                rawExpression = input,
+                rawExpression = displayInput,
                 encryptedXor = st.search.encrypted,
                 selectedRegions = st.selectedRegions,
                 mask = addrMask,
@@ -1807,7 +2027,7 @@ object Session {
                 return@launch
             }
             hasFuzzySession = false
-            if (historyStore.add(input)) {
+            if (historyStore.add(displayInput)) {
                 persistSearchHistoryAsync()
             }
             _ui.update {
@@ -2238,7 +2458,7 @@ object Session {
                 NextTab.SAVED_LIST -> s.copy(savedSelection = s.savedSelection.toggle(SelectionState.itemKey(item)))
                 NextTab.MEMORY -> s.copy(memorySelection = s.memorySelection.toggle(SelectionState.memoryRowKey(item)))
                 NextTab.SEARCH_LIST -> s.copy(searchSelection = s.searchSelection.toggle(SelectionState.itemKey(item)))
-                NextTab.SETTINGS -> s
+                NextTab.SETTINGS, NextTab.DEBUG -> s
             }
         }
     }
@@ -2249,7 +2469,7 @@ object Session {
                 NextTab.SAVED_LIST -> if (s.saved.isEmpty()) s else s.copy(savedSelection = s.savedSelection.selectAll())
                 NextTab.MEMORY -> if (s.memoryRows.isEmpty()) s else s.copy(memorySelection = s.memorySelection.selectAll())
                 NextTab.SEARCH_LIST -> if (s.results.isEmpty()) s else s.copy(searchSelection = s.searchSelection.selectAll())
-                NextTab.SETTINGS -> s
+                NextTab.SETTINGS, NextTab.DEBUG -> s
             }
         }
     }
@@ -2260,7 +2480,7 @@ object Session {
                 NextTab.SAVED_LIST -> if (s.saved.isEmpty()) s else s.copy(savedSelection = s.savedSelection.invert())
                 NextTab.MEMORY -> if (s.memoryRows.isEmpty()) s else s.copy(memorySelection = s.memorySelection.invert())
                 NextTab.SEARCH_LIST -> if (s.results.isEmpty()) s else s.copy(searchSelection = s.searchSelection.invert())
-                NextTab.SETTINGS -> s
+                NextTab.SETTINGS, NextTab.DEBUG -> s
             }
         }
     }
@@ -2271,7 +2491,7 @@ object Session {
                 NextTab.SAVED_LIST -> s.copy(savedSelection = SelectionState.EMPTY)
                 NextTab.MEMORY -> s.copy(memorySelection = SelectionState.EMPTY)
                 NextTab.SEARCH_LIST -> s.copy(searchSelection = SelectionState.EMPTY)
-                NextTab.SETTINGS -> s
+                NextTab.SETTINGS, NextTab.DEBUG -> s
             }
         }
     }
@@ -2282,7 +2502,7 @@ object Session {
             NextTab.SAVED_LIST -> st.savedSelection.resolveSelected(st.saved, SelectionState::itemKey)
             NextTab.MEMORY -> st.memorySelection.resolveSelected(st.memoryRows, SelectionState::memoryRowKey)
             NextTab.SEARCH_LIST -> st.searchSelection.resolveSelected(st.results, SelectionState::itemKey)
-            NextTab.SETTINGS -> emptyList()
+            NextTab.SETTINGS, NextTab.DEBUG -> emptyList()
         }
     }
 
@@ -2298,7 +2518,7 @@ object Session {
             NextTab.SAVED_LIST -> st.saved
             NextTab.MEMORY -> st.memoryRows
             NextTab.SEARCH_LIST -> st.results
-            NextTab.SETTINGS -> emptyList()
+            NextTab.SETTINGS, NextTab.DEBUG -> emptyList()
         }
     }
 
@@ -2576,6 +2796,63 @@ object Session {
             onComplete?.invoke(false)
             return false
         }
+        val ggAsm = AsmEngineManager.parseGgAsmPrefix(trimmed)
+        if (ggAsm != null) {
+            val (asmArch, asmBody) = ggAsm
+            if (asmBody.isBlank()) {
+                toast("请输入汇编指令，例如 ${asmArch.ggPrefix} NOP")
+                onComplete?.invoke(false)
+                return false
+            }
+            scope.launch {
+                _ui.update { it.copy(isBatchBusy = true) }
+                var writeError: String? = null
+                val updatedByAddr = withContext(Dispatchers.IO) {
+                    val map = HashMap<Long, MemoryItem>(targets.size * 2)
+                    for (item in targets) {
+                        val res = AsmEngineManager.assemble(asmArch, item.address, asmBody)
+                        if (res.isFailure) {
+                            writeError = res.exceptionOrNull()?.message ?: "汇编失败"
+                            break
+                        }
+                        val bytes = res.getOrThrow()
+                        if (bytes.isEmpty()) continue
+                        engine.writeBlock(item.address, bytes)
+                        val newWord = engine.read(item.address, item.size)
+                        map[item.address] = item.copy(
+                            value = newWord,
+                            previousValue = item.value,
+                            manuallyEdited = true,
+                            note = if (!customNote.isNullOrBlank()) customNote else item.note
+                        )
+                    }
+                    map
+                }
+                if (writeError != null) {
+                    _ui.update { it.copy(isBatchBusy = false) }
+                    toast("汇编写入失败：$writeError")
+                    onComplete?.invoke(false)
+                    return@launch
+                }
+                if (historyStore.add(trimmed)) persistSearchHistoryAsync()
+                _ui.update { st ->
+                    st.copy(
+                        isBatchBusy = false,
+                        rawResults = st.rawResults.map { updatedByAddr[it.address] ?: it },
+                        results = st.results.map { updatedByAddr[it.address] ?: it },
+                        saved = st.saved.map { updatedByAddr[it.address] ?: it },
+                        memoryRows = st.memoryRows.map { updatedByAddr[it.address] ?: it },
+                        lastBatchEditValue = trimmed,
+                        history = historyStore.list()
+                    )
+                }
+                refreshMemoryDisasmAsync()
+                toast("已写入 ${asmArch.shortCode} 汇编至 ${targets.size} 处地址")
+                onComplete?.invoke(true)
+            }
+            return true
+        }
+
         val cleanType = if ((targetType and 0x7F) == 0 || targetType == ValueType.AUTO) {
             targets.first().flags and 0x7F
         } else {
@@ -2859,7 +3136,7 @@ object Session {
                 )
             }
             persistSavedListAsync(nextSavedSnapshot)
-            toast("已批量更改 ${targets.size} 项的类型为 ${ValueType.nameOf(cleanType)}")
+            toast("已批量更改 ${targets.size} 项的类型为 ${ValueType.longName(cleanType)}")
         }
     }
 
@@ -3003,9 +3280,12 @@ object Session {
     fun setValueMask(mask: Int, forSaved: Boolean) {
         repo?.let { r -> scope.launch(Dispatchers.IO) { if (forSaved) r.setSavedFormatMask(mask) else r.setValueFormatMask(mask) } }
         _ui.update { if (forSaved) it.copy(valueMaskSaved = mask) else it.copy(valueMask = mask) }
+        if (!forSaved) {
+            refreshMemoryDisasmAsync()
+        }
     }
 
-    // ============ 内存浏览（4KB 单页 + 跳转高亮 + 持久化历史） ============
+    // ============ 内存浏览（4KB 单页 + 跳转高亮 + 持久化历史 + 反汇编） ============
 
     fun goto(address: Long, recordHistory: Boolean = true, highlightTarget: Boolean = true) {
         scope.launch {
@@ -3017,7 +3297,7 @@ object Session {
             } else {
                 targetAligned
             }
-            val rows = withContext(Dispatchers.IO) { readMemoryPageRows(pageBase) }
+            val (rows, disasmMap) = withContext(Dispatchers.IO) { readMemoryPageWithDisasm(pageBase) }
             val targetHex = java.lang.Long.toHexString(address).uppercase()
             var updatedGotoHist: List<String>? = null
             val limit = currentHistoryLimit()
@@ -3032,6 +3312,7 @@ object Session {
                 } else it.gotoHistory
                 it.copy(
                     memoryRows = rows,
+                    memoryDisasm = disasmMap,
                     memoryBase = pageBase,
                     gotoHistory = nextGotoHist,
                     memoryHighlightAddress = if (highlightTarget) targetAligned else it.memoryHighlightAddress,
@@ -3048,9 +3329,25 @@ object Session {
         }
     }
 
-    private fun readMemoryPageRows(pageBase: Long): List<MemoryItem> {
+    private fun readMemoryPageWithDisasm(pageBase: Long): Pair<List<MemoryItem>, Map<Long, String>> {
         val count = MEMORY_PAGE_ROWS
         val block = engine.readBlock(pageBase, MEMORY_PAGE_BYTES)
+        val rows = buildMemoryPageRows(pageBase, block, count)
+        val asmArch = Formatter.activeAsmArch(_ui.value.valueMask)
+        val disasm = if (asmArch != null && block.isNotEmpty()) {
+            AsmEngineManager.disassembleBlockMap(asmArch, pageBase, block, count)
+        } else {
+            emptyMap()
+        }
+        return rows to disasm
+    }
+
+    private fun readMemoryPageRows(pageBase: Long): List<MemoryItem> {
+        val block = engine.readBlock(pageBase, MEMORY_PAGE_BYTES)
+        return buildMemoryPageRows(pageBase, block, MEMORY_PAGE_ROWS)
+    }
+
+    private fun buildMemoryPageRows(pageBase: Long, block: ByteArray, count: Int): List<MemoryItem> {
         val candidatePtrs = LongArray(count) { r ->
             val off = (r and -2) * 4
             if (engine.x64 && off + 8 <= block.size) {
@@ -3112,13 +3409,14 @@ object Session {
             } else {
                 targetAligned
             }
-            val rows = withContext(Dispatchers.IO) { readMemoryPageRows(pageBase) }
+            val (rows, disasmMap) = withContext(Dispatchers.IO) { readMemoryPageWithDisasm(pageBase) }
             _ui.update {
                 val nextBack = if (prevBase != pageBase && prevBase != 0L) {
                     (it.memoryHistoryBack + prevBase).takeLast(32)
                 } else it.memoryHistoryBack
                 it.copy(
                     memoryRows = rows,
+                    memoryDisasm = disasmMap,
                     memoryBase = pageBase,
                     memoryHighlightAddress = targetAligned,
                     memoryScrollTrigger = it.memoryScrollTrigger + 1,
@@ -3194,9 +3492,20 @@ object Session {
         }
     }
 
-    /** 模块 2：诚实提示暂未实现跨进程 ptrace mmap 内存分配，绝不伪造成功并跳转 Ca/Ch */
+    /** 真实 mmap 匿名内存页分配 */
     fun allocateMemoryPage(address: Long, read: Boolean, write: Boolean, exec: Boolean) {
-        toast("当前版本暂未实现跨进程内存分配")
+        scope.launch {
+            _ui.update { it.copy(busy = true, busyText = "正在分配内存页") }
+            val (allocAddr, msg) = withContext(Dispatchers.IO) {
+                engine.allocatePage(address, read, write, exec)
+            }
+            _ui.update { it.copy(busy = false) }
+            toast(msg)
+            if (allocAddr != 0L) {
+                closeAllSheets()
+                goto(allocAddr, recordHistory = true, highlightTarget = true)
+            }
+        }
     }
 
     // ============ 历史（完整持久化） ============
@@ -3253,7 +3562,7 @@ object Session {
         NextTab.SEARCH_LIST -> DEFAULT_TOOLS_SEARCH
         NextTab.SAVED_LIST -> DEFAULT_TOOLS_SAVED
         NextTab.MEMORY -> DEFAULT_TOOLS_MEMORY
-        NextTab.SETTINGS -> emptyList()
+        NextTab.SETTINGS, NextTab.DEBUG -> emptyList()
     }
 
     fun moveTool(tab: NextTab, from: Int, to: Int) {
@@ -3281,7 +3590,7 @@ object Session {
             NextTab.SEARCH_LIST -> DEFAULT_TOOLS_SEARCH
             NextTab.SAVED_LIST -> DEFAULT_TOOLS_SAVED
             NextTab.MEMORY -> DEFAULT_TOOLS_MEMORY
-            NextTab.SETTINGS -> emptyList()
+            NextTab.SETTINGS, NextTab.DEBUG -> emptyList()
         }
         _ui.update {
             it.copy(
@@ -3386,6 +3695,296 @@ object Session {
                     closeAllSheets()
                 } else {
                     toast("复制内存失败，请检查地址范围是否可读写")
+                }
+            }
+        }
+    }
+
+    // ============ Keystone / Capstone 独立汇编引擎扩展包管理 ============
+
+    fun importAsmPackFromUri(uri: android.net.Uri) {
+        val ctx = appContext ?: return
+        scope.launch {
+            _ui.update { it.copy(isBatchBusy = true) }
+            val status = withContext(Dispatchers.IO) {
+                AsmEngineManager.importFromUri(ctx, uri)
+            }
+            _ui.update { it.copy(isBatchBusy = false, asmPack = status) }
+            if (status.fullyReady) {
+                refreshMemoryDisasmAsync()
+                toast("汇编引擎包已导入并加载 (${status.abi})")
+            } else if (status.keystoneReady || status.capstoneReady) {
+                refreshMemoryDisasmAsync()
+                toast("已部分加载汇编引擎：${status.error.ifBlank { status.abi }}")
+            } else {
+                toast(status.error.ifBlank { "导入汇编引擎包失败" })
+            }
+        }
+    }
+
+    fun importAsmPackFromFile(path: String) {
+        val ctx = appContext ?: return
+        scope.launch {
+            _ui.update { it.copy(isBatchBusy = true) }
+            val status = withContext(Dispatchers.IO) {
+                AsmEngineManager.importFromFile(ctx, File(path))
+            }
+            _ui.update { it.copy(isBatchBusy = false, asmPack = status) }
+            if (status.fullyReady) {
+                refreshMemoryDisasmAsync()
+                toast("汇编引擎包已导入并加载 (${status.abi})")
+            } else if (status.keystoneReady || status.capstoneReady) {
+                refreshMemoryDisasmAsync()
+                toast("已部分加载汇编引擎：${status.error.ifBlank { status.abi }}")
+            } else {
+                toast(status.error.ifBlank { "导入汇编引擎包失败" })
+            }
+        }
+    }
+
+    fun clearAsmPack() {
+        val ctx = appContext ?: return
+        scope.launch {
+            val status = withContext(Dispatchers.IO) { AsmEngineManager.clearPack(ctx) }
+            _ui.update { it.copy(asmPack = status, memoryDisasm = emptyMap()) }
+            toast("已移除外置汇编引擎包")
+        }
+    }
+
+    fun refreshMemoryDisasmAsync() {
+        val st = _ui.value
+        val arch = Formatter.activeAsmArch(st.valueMask)
+        if (arch == null || st.memoryRows.isEmpty() || !st.attachedOk) {
+            if (st.memoryDisasm.isNotEmpty()) {
+                _ui.update { it.copy(memoryDisasm = emptyMap()) }
+            }
+            return
+        }
+        val base = st.memoryBase
+        scope.launch(Dispatchers.IO) {
+            val block = engine.readBlock(base, MEMORY_PAGE_BYTES)
+            val disasm = AsmEngineManager.disassembleBlockMap(arch, base, block, MEMORY_PAGE_ROWS)
+            _ui.update { cur ->
+                if (cur.memoryBase == base) cur.copy(memoryDisasm = disasm) else cur
+            }
+        }
+    }
+
+    fun writeAssembly(
+        address: Long,
+        arch: AsmArch,
+        asmCode: String,
+        onDone: (Boolean, String) -> Unit
+    ) {
+        val clean = asmCode.trim()
+        if (clean.isEmpty()) {
+            onDone(false, "请输入汇编指令")
+            return
+        }
+        scope.launch {
+            _ui.update { it.copy(isBatchBusy = true) }
+            val result = withContext(Dispatchers.IO) {
+                val res = AsmEngineManager.assemble(arch, address, clean)
+                if (res.isFailure) {
+                    return@withContext false to (res.exceptionOrNull()?.message ?: "汇编失败")
+                }
+                val bytes = res.getOrThrow()
+                if (bytes.isEmpty()) {
+                    return@withContext false to "未生成有效机器码"
+                }
+                val ok = engine.writeBlock(address, bytes)
+                if (!ok) {
+                    return@withContext false to "写入目标地址内存失败（请确认权限或内存页可写）"
+                }
+                true to "已写入 ${bytes.size} 字节 (${AsmEngineManager.bytesToSpacedHex(bytes.take(12).toByteArray())}${if (bytes.size > 12) " …" else ""})"
+            }
+            _ui.update { it.copy(isBatchBusy = false) }
+            if (result.first) {
+                val pageBase = _ui.value.memoryBase
+                if (_ui.value.memoryRows.isNotEmpty()) {
+                    val (rows, disasm) = withContext(Dispatchers.IO) { readMemoryPageWithDisasm(pageBase) }
+                    _ui.update { it.copy(memoryRows = rows, memoryDisasm = disasm) }
+                }
+                toast(result.second)
+            }
+            onDone(result.first, result.second)
+        }
+    }
+
+    // ============ 硬件断点调试器 (Perf / Ptrace) ============
+
+    fun defaultBreakpointAddressHex(): String {
+        val st = _ui.value
+        val addr = st.contextItem?.address
+            ?: checkedItems().firstOrNull()?.address
+            ?: st.memoryHighlightAddress
+            ?: st.memoryBase
+        return if (addr != 0L) java.lang.Long.toUnsignedString(addr, 16).uppercase() else ""
+    }
+
+    fun addBreakpoint(
+        address: Long,
+        type: BpType,
+        sizeBytes: Int,
+        mode: BpMode,
+        captureCallstack: Boolean
+    ) {
+        if (!_ui.value.attachedOk) {
+            toast("请先附加目标进程")
+            return
+        }
+        scope.launch {
+            _ui.update { it.copy(isBatchBusy = true) }
+            val (bpId, err) = withContext(Dispatchers.IO) {
+                engine.bpAdd(address, type, sizeBytes, mode, captureCallstack)
+            }
+            if (bpId > 0) {
+                val snap = withContext(Dispatchers.IO) { engine.bpSnapshot() }
+                _ui.update { st ->
+                    st.copy(
+                        isBatchBusy = false,
+                        breakpoints = snap,
+                        tab = NextTab.DEBUG,
+                        sheetStack = emptyList()
+                    )
+                }
+                ensureBpPolling()
+                toast("已添加断点 #$bpId (${java.lang.Long.toUnsignedString(address, 16).uppercase()})")
+            } else {
+                _ui.update { it.copy(isBatchBusy = false) }
+                toast(err.ifBlank { "添加断点失败" })
+            }
+        }
+    }
+
+    fun removeBreakpoint(bpId: Int) {
+        scope.launch {
+            val snap = withContext(Dispatchers.IO) {
+                engine.bpRemove(bpId)
+                engine.bpSnapshot()
+            }
+            _ui.update { st ->
+                st.copy(
+                    breakpoints = snap,
+                    selectedBpIds = st.selectedBpIds - bpId
+                )
+            }
+            if (snap.none { it.running }) {
+                bpPollingJob?.cancel()
+                bpPollingJob = null
+            }
+            toast("已移除断点 #$bpId")
+        }
+    }
+
+    fun removeSelectedBreakpoints() {
+        val ids = _ui.value.selectedBpIds.ifEmpty { _ui.value.breakpoints.map { it.id }.toSet() }
+        if (ids.isEmpty()) {
+            toast("当前没有可删除的断点")
+            return
+        }
+        scope.launch {
+            val snap = withContext(Dispatchers.IO) {
+                ids.forEach { engine.bpRemove(it) }
+                engine.bpSnapshot()
+            }
+            _ui.update { st ->
+                st.copy(
+                    breakpoints = snap,
+                    selectedBpIds = emptySet()
+                )
+            }
+            if (snap.none { it.running }) {
+                bpPollingJob?.cancel()
+                bpPollingJob = null
+            }
+            toast("已删除 ${ids.size} 个断点")
+        }
+    }
+
+    fun toggleBreakpointPause(bpId: Int) {
+        val bp = _ui.value.breakpoints.firstOrNull { it.id == bpId } ?: return
+        val nextPaused = !bp.paused
+        scope.launch {
+            val snap = withContext(Dispatchers.IO) {
+                engine.bpSetPaused(bpId, nextPaused)
+                engine.bpSnapshot()
+            }
+            _ui.update { it.copy(breakpoints = snap) }
+            if (snap.any { it.running }) ensureBpPolling()
+        }
+    }
+
+    fun toggleAllBreakpointsPause() {
+        val list = _ui.value.breakpoints
+        if (list.isEmpty()) return
+        val anyRunning = list.any { it.isActive }
+        scope.launch {
+            val snap = withContext(Dispatchers.IO) {
+                engine.bpSetAllPaused(anyRunning)
+                engine.bpSnapshot()
+            }
+            _ui.update { it.copy(breakpoints = snap) }
+            if (snap.any { it.running }) ensureBpPolling()
+            toast(if (anyRunning) "已暂停全部断点" else "已恢复全部断点")
+        }
+    }
+
+    fun clearBreakpointHits(bpId: Int = 0) {
+        scope.launch {
+            val snap = withContext(Dispatchers.IO) {
+                engine.bpClearHits(bpId)
+                engine.bpSnapshot()
+            }
+            _ui.update { it.copy(breakpoints = snap) }
+            toast("已清空断点命中记录")
+        }
+    }
+
+    fun toggleBpSelection(bpId: Int) {
+        _ui.update { st ->
+            val next = if (bpId in st.selectedBpIds) st.selectedBpIds - bpId else st.selectedBpIds + bpId
+            st.copy(selectedBpIds = next)
+        }
+    }
+
+    fun selectAllBreakpoints() {
+        _ui.update { st -> st.copy(selectedBpIds = st.breakpoints.map { it.id }.toSet()) }
+    }
+
+    fun invertBpSelection() {
+        _ui.update { st ->
+            val all = st.breakpoints.map { it.id }.toSet()
+            st.copy(selectedBpIds = all - st.selectedBpIds)
+        }
+    }
+
+    fun clearBpSelection() {
+        _ui.update { it.copy(selectedBpIds = emptySet()) }
+    }
+
+    fun refreshBreakpointsNow() {
+        scope.launch {
+            val snap = withContext(Dispatchers.IO) { engine.bpSnapshot() }
+            _ui.update { it.copy(breakpoints = snap) }
+            if (snap.any { it.running }) ensureBpPolling()
+        }
+    }
+
+    private fun ensureBpPolling() {
+        if (bpPollingJob?.isActive == true) return
+        bpPollingJob = scope.launch(Dispatchers.IO) {
+            while (true) {
+                delay(420L)
+                val st = _ui.value
+                if (!st.attachedOk) {
+                    _ui.update { it.copy(breakpoints = emptyList(), selectedBpIds = emptySet()) }
+                    break
+                }
+                val snap = engine.bpSnapshot()
+                _ui.update { it.copy(breakpoints = snap) }
+                if (snap.isEmpty() || snap.none { it.running }) {
+                    break
                 }
             }
         }

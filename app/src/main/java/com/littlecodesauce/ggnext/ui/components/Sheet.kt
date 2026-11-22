@@ -51,6 +51,8 @@ fun NextSheetCard(
     subtitle: String? = null,
     modifier: Modifier = Modifier,
     maxBodyHeight: Int = 620,
+    showSideKeyboard: Boolean = false,
+    sideKeyboard: (@Composable () -> Unit)? = null,
     body: @Composable () -> Unit
 ) {
     val metrics = LocalUiMetrics.current
@@ -78,51 +80,124 @@ fun NextSheetCard(
             if (subtitle.isNullOrBlank()) 60 else 84
         }
         val effectiveMaxBodyHeight = minOf(maxBodyHeight, (availHeightDp - headerReserve - 12).coerceAtLeast(110)).dp
+        val useLandscapeSideKeyboard = isLandscape && showSideKeyboard && sideKeyboard != null
+        val maxCardWidth = when {
+            useLandscapeSideKeyboard -> 880.dp
+            isLandscape -> 560.dp
+            else -> Dp.Unspecified
+        }
 
-        Column(
-            Modifier
-                .padding(horizontal = 10.dp, vertical = if (isCompactHeight) 3.dp else 6.dp)
-                .then(if (isLandscape) Modifier.widthIn(max = 560.dp) else Modifier)
-                .fillMaxWidth()
-                .heightIn(max = maxCardHeight)
-                .clickable(
-                    indication = null,
-                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                ) { /* 消费弹窗内容区域点击，防止误触发关闭 */ }
-                .background(Rose.Card.copy(alpha = cardAlpha), RoundedCornerShape(corner))
-                .border(1.dp, Rose.Divider, RoundedCornerShape(corner))
-        ) {
+        val cardModifier = Modifier
+            .padding(horizontal = 10.dp, vertical = if (isCompactHeight) 3.dp else 6.dp)
+            .then(if (maxCardWidth != Dp.Unspecified) Modifier.widthIn(max = maxCardWidth) else Modifier)
+            .fillMaxWidth()
+            .heightIn(max = maxCardHeight)
+            .clickable(
+                indication = null,
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+            ) { /* 消费弹窗内容区域点击，防止误触发关闭 */ }
+            .background(Rose.Card.copy(alpha = cardAlpha), RoundedCornerShape(corner))
+            .border(1.dp, Rose.Divider, RoundedCornerShape(corner))
+
+        if (useLandscapeSideKeyboard) {
             Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        start = 18.dp,
-                        end = 12.dp,
-                        top = if (isCompactHeight) 7.dp else 13.dp,
-                        bottom = if (subtitle.isNullOrBlank()) (if (isCompactHeight) 4.dp else 7.dp) else 2.dp
-                    ),
-                verticalAlignment = Alignment.CenterVertically
+                modifier = cardModifier.padding(end = 10.dp),
+                verticalAlignment = Alignment.Top
             ) {
-                Text(tr(title), color = Rose.Text, fontSize = fsp(if (isCompactHeight) 17f else 20f), fontWeight = FontWeight.Medium)
-                Spacer(Modifier.weight(1f))
-                CloseBadge(onDismiss)
+                Column(
+                    modifier = Modifier
+                        .weight(1.12f)
+                        .heightIn(max = maxCardHeight)
+                ) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                start = 16.dp,
+                                end = 10.dp,
+                                top = if (isCompactHeight) 7.dp else 11.dp,
+                                bottom = if (subtitle.isNullOrBlank()) (if (isCompactHeight) 4.dp else 6.dp) else 2.dp
+                            ),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(tr(title), color = Rose.Text, fontSize = fsp(if (isCompactHeight) 16.5f else 19f), fontWeight = FontWeight.Medium)
+                        Spacer(Modifier.weight(1f))
+                        CloseBadge(onDismiss)
+                    }
+                    if (!subtitle.isNullOrBlank()) {
+                        Text(
+                            tr(subtitle),
+                            color = Rose.TextSecond,
+                            fontSize = fsp(if (isCompactHeight) 11f else 12.5f),
+                            modifier = Modifier.padding(start = 16.dp, end = 12.dp, bottom = if (isCompactHeight) 3.dp else 5.dp)
+                        )
+                    }
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false)
+                            .heightIn(max = effectiveMaxBodyHeight)
+                            .padding(start = 14.dp, end = 10.dp, bottom = if (isCompactHeight) 8.dp else 10.dp)
+                    ) { body() }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(0.92f)
+                        .padding(vertical = if (isCompactHeight) 8.dp else 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    sideKeyboard?.invoke()
+                }
             }
-            if (!subtitle.isNullOrBlank()) {
-                Text(
-                    tr(subtitle),
-                    color = Rose.TextSecond,
-                    fontSize = fsp(if (isCompactHeight) 11.5f else 13f),
-                    modifier = Modifier.padding(start = 18.dp, end = 18.dp, bottom = if (isCompactHeight) 3.dp else 6.dp)
-                )
+        } else {
+            Column(cardModifier) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            start = 18.dp,
+                            end = 12.dp,
+                            top = if (isCompactHeight) 7.dp else 13.dp,
+                            bottom = if (subtitle.isNullOrBlank()) (if (isCompactHeight) 4.dp else 7.dp) else 2.dp
+                        ),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(tr(title), color = Rose.Text, fontSize = fsp(if (isCompactHeight) 17f else 20f), fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.weight(1f))
+                    CloseBadge(onDismiss)
+                }
+                if (!subtitle.isNullOrBlank()) {
+                    Text(
+                        tr(subtitle),
+                        color = Rose.TextSecond,
+                        fontSize = fsp(if (isCompactHeight) 11.5f else 13f),
+                        modifier = Modifier.padding(start = 18.dp, end = 18.dp, bottom = if (isCompactHeight) 3.dp else 6.dp)
+                    )
+                }
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .heightIn(max = effectiveMaxBodyHeight)
+                        .padding(horizontal = 14.dp)
+                        .padding(bottom = if (isCompactHeight) 8.dp else 12.dp)
+                ) {
+                    body()
+                    if (sideKeyboard != null) {
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = showSideKeyboard,
+                            enter = expandEnter(),
+                            exit = expandExit()
+                        ) {
+                            Column(Modifier.fillMaxWidth()) {
+                                Spacer(Modifier.height(6.dp))
+                                sideKeyboard()
+                            }
+                        }
+                    }
+                }
             }
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .weight(1f, fill = false)
-                    .heightIn(max = effectiveMaxBodyHeight)
-                    .padding(horizontal = 14.dp)
-                    .padding(bottom = if (isCompactHeight) 8.dp else 12.dp)
-            ) { body() }
         }
     }
 }
@@ -229,7 +304,8 @@ fun RoseButton(
                 enabled = enabled,
                 onPressChange = { pressed = it },
                 onClick = onClick
-            ),
+            )
+            .padding(horizontal = 8.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
@@ -240,7 +316,8 @@ fun RoseButton(
                 else -> Rose.TextSecond
             },
             fontSize = fsp(14f),
-            fontWeight = if (filled) FontWeight.SemiBold else FontWeight.Normal
+            fontWeight = if (filled) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1
         )
     }
 }

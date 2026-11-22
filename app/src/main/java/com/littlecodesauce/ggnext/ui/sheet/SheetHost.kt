@@ -92,6 +92,8 @@ fun SheetHost(ui: Ui) {
                         Sheet.COPY_MEMORY -> CopyMemorySheet(ui)
                         Sheet.DUMP -> DumpSheet(ui)
                         Sheet.ALLOCATE -> AllocateSheet(ui)
+                        Sheet.BREAKPOINT -> BreakpointSheet(ui)
+                        Sheet.WRITE_ASM -> WriteAsmSheet(ui)
                         Sheet.NONE -> Unit
                     }
                 }

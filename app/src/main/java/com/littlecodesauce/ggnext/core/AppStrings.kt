@@ -491,7 +491,106 @@ object AppStrings {
         "已关闭悬浮窗" to "Floating overlay stopped",
         "未发现数值发生变化的项目" to "No changed items found",
         "请先勾选要载入为搜索结果的项目" to "Select items to load as search results first",
-        "正在读取..." to "Reading..."
+        "正在读取..." to "Reading...",
+        "调试" to "Debug",
+        "调试功能将在后续版本中提供" to "Debugging features will be available in a future update",
+        "扩展" to "Extensions",
+        "扩展插件" to "Extensions",
+        "扩展插件系统将在后续版本中提供" to "Extension plugin system will be available in a future update",
+        "常规" to "General",
+        "主题" to "Theme",
+        "字体" to "Font",
+        "系统默认" to "System Default",
+        "自定义字体" to "Custom Font",
+        "导入 TTF" to "Import TTF",
+        "恢复默认" to "Reset",
+        "选择 TTF 字体文件" to "Select TTF Font File",
+        "默认使用系统字体，可导入本地 .ttf 字体文件并同步至主页与悬浮窗" to "Uses system font by default. Import a local .ttf font to sync across Home and Overlay.",
+        "已恢复系统默认字体" to "Restored system default font",
+        "字体导入失败：仅支持有效的 .ttf / .otf / .ttc 字体文件" to "Font import failed: only valid .ttf / .otf / .ttc font files are supported",
+        "字体文件无效或已损坏" to "Invalid or corrupted font file",
+        "字体文件不存在" to "Font file does not exist",
+        "改善" to "Refine",
+        "外观与主题" to "Appearance & Theme",
+        "主题配色、字体、深浅色模式、背景透明度与屏幕占比" to "Theme color, font, dark/light mode, opacity & screen ratio",
+        "悬浮窗服务" to "Overlay Service",
+        "在屏幕显示可拖拽悬浮球" to "Display a draggable floating ball on screen",
+        "短按悬浮球打开面板，长按调节变速" to "Tap the floating ball to open panel, hold for speed",
+        "GGNext v0.6 · 点击展开修改器面板" to "GGNext v0.6 · Tap to open modifier panel",
+        "GGNext v0.6 · 点击启动悬浮球服务" to "GGNext v0.6 · Tap to start overlay service",
+        "Root · 已授权" to "Root · Granted",
+        "Root · 未授权，点击检测" to "Root · Not granted, tap to check",
+        "免 Root · 共享 UID" to "No Root · Shared UID",
+        "版本 v0.6、项目地址与开源许可" to "Version v0.6, repository & open-source license",
+        "重置主题、字体、透明度、屏幕占比与语言设置" to "Reset theme, font, opacity, screen ratio & language",
+        "权限与环境" to "Permissions & Environment",
+        "所有文件访问权限" to "All Files Access",
+        "文件浏览器与脚本路径可访问完整外部存储" to "Full external storage access for file browser & scripts",
+        "授予后可在文件浏览器中完整查看所有文件" to "Grant to view all files in the built-in file browser",
+        "已授予所有文件访问权限" to "All files access permission granted",
+        "Root 权限检测" to "Root Access Check",
+        "已获取超级用户权限，可直接读写进程内存" to "Superuser access granted for direct memory read/write",
+        "未检测到 Root 授权，点击重新检测" to "Root access not detected, tap to check again",
+        "检测" to "Check",
+        "运行状态" to "Runtime Status",
+        "当前目标进程" to "Current Target Process",
+        "未附加" to "Not Attached",
+        "已启用内存区域" to "Enabled Memory Regions",
+        "GGNext v0.6 · 点击启动悬浮球" to "GGNext v0.6 · Tap to start floating ball",
+        "停止" to "Stop",
+        "启动" to "Start",
+        "支持与诊断" to "Support & Diagnostics",
+        "搜索语法、联合搜索与功能说明" to "Search syntax, group search & feature guide",
+        "关于" to "About",
+        "特别鸣谢" to "Special Thanks",
+        "致谢启发本项目设计的优秀工具" to "Credits to projects that inspired GGNext",
+        "版本 v0.6、官方群组与开源许可" to "Version v0.6, official group & license",
+        "色彩与深浅模式" to "Colors & Dark Mode",
+        "字体管理" to "Font Manager",
+        "已管理字体" to "Managed Fonts",
+        "导入字体" to "Import Font",
+        "导入本地 .ttf / .otf 字体后可随时切换或删除，同步生效于主页与悬浮窗" to "Import local .ttf / .otf fonts to switch or delete anytime across Home & Overlay",
+        "不额外加载外部字体文件" to "Uses system font without loading external files",
+        "删除字体" to "Delete Font",
+        "悬浮窗与界面尺寸" to "Overlay & Layout Sizing",
+        "暂无日志可复制" to "No logs to copy",
+        "已复制运行日志" to "Logs copied",
+        "GGNext 的设计与成长离不开以下优秀项目与先驱工具的启发，谨致以诚挚谢意。" to "GGNext's design and growth were inspired by the following outstanding projects and pioneers.",
+        "界面与交互灵感" to "UI & Interaction Inspiration",
+        "GGNext 的整体视觉层次、布局排布与多项交互细节，参考并致敬了 AGameGuardian 优秀的界面设计理念。" to "GGNext's visual hierarchy, layout structure, and interaction details draw inspiration from AGameGuardian's excellent interface design.",
+        "经典内存分析工具先驱" to "Classic Memory Analysis Pioneer",
+        "致敬 Android 平台经典的内存分析与修改工具 GameGuardian。其开创性的搜索语法、联合搜索范式与内存浏览体系，为本项目奠定了重要参考与灵感。" to "A tribute to GameGuardian, the classic Android memory analysis tool whose pioneering search syntax, group search paradigm, and memory viewer inspired this project.",
+        "点击卡片即可前往对应项目主页" to "Tap any card to visit its homepage",
+        "无法打开浏览器，已复制链接" to "Could not open browser; link copied",
+        "无法直接打开浏览器，已复制链接" to "Could not open browser; link copied",
+        "开源 Android 内存分析与调试工具，采用 Jetpack Compose 与 C++20 原生引擎构建，遵循 GNU General Public License v3.0 协议发布。" to "Open-source Android memory analysis and debugging tool built with Jetpack Compose and a native C++20 engine under GNU GPL v3.0.",
+        "社区与项目" to "Community & Project",
+        "官方群组" to "Official Group",
+        "QQ 群" to "QQ Group",
+        "交流反馈与更新动态" to "Feedback, discussion & release updates",
+        "加入" to "Join",
+        "开源仓库" to "Open Source Repository",
+        "GGNext GitHub · 查看源码、提交 Issue 与获取更新" to "GGNext GitHub · Source code, issues & releases",
+        "查看源代码、提交 Issue 与获取版本发布" to "View source code, submit issues & get releases",
+        "加入交流反馈、获取更新动态与使用技巧" to "Join for feedback, updates & usage tips",
+        "点击加入或复制" to "Tap to join or copy",
+        "点击前往" to "Open",
+        "点击访问" to "Visit",
+        "开源协议" to "License",
+        "当前环境" to "Current Environment",
+        "当前字体" to "Current Font",
+        "返回上一级" to "Parent directory",
+        "文件夹" to "Folder",
+        "正在读取目录…" to "Loading directory...",
+        "未找到匹配的文件或文件夹" to "No matching files or folders",
+        "当前目录为空或无访问权限" to "Directory is empty or inaccessible",
+        "显示隐藏文件" to "Show hidden files",
+        "刷新目录" to "Refresh directory",
+        "未授予所有文件访问权限，可能无法显示部分文件 · 点击授权" to "All files access not granted; some files may be hidden · Tap to grant",
+        "按顺序" to "Ordered",
+        "群组大小" to "Group Size",
+        "群组距离" to "Group Distance",
+        "设置联合搜索最大跨度（默认 512）" to "Set max group search span (default 512)"
     )
 
     private fun toEnglish(text: String): String {
@@ -564,6 +663,49 @@ object AppStrings {
             text.startsWith("Byte 取值范围为") -> return text.replace("Byte 取值范围为 -128 ~ 255，当前: ", "Byte range is -128..255, got: ")
             text.startsWith("Word 取值范围为") -> return text.replace("Word 取值范围为 -32,768 ~ 65,535，当前: ", "Word range is -32,768..65,535, got: ")
             text.startsWith("Dword 取值范围为") -> return text.replace("Dword 取值范围为 -2,147,483,648 ~ 4,294,967,295，当前: ", "Dword range is -2,147,483,648..4,294,967,295, got: ")
+            text == "硬件断点" -> return "Hardware Breakpoint"
+            text == "硬件断点调试器" -> return "Hardware Breakpoint Debugger"
+            text == "设置硬件断点" -> return "Set Hardware Breakpoint"
+            text == "添加硬件断点" -> return "Add Hardware Breakpoint"
+            text == "添加断点" -> return "Add Breakpoint"
+            text == "断点地址 (HEX)" -> return "Breakpoint Address (HEX)"
+            text == "断点类型" -> return "Breakpoint Type"
+            text == "监视大小 (字节)" -> return "Watch Size (Bytes)"
+            text == "调试后端模式" -> return "Debugger Backend Mode"
+            text == "只读" -> return "Read"
+            text == "只写" -> return "Write"
+            text == "读写" -> return "R/W"
+            text == "执行" -> return "Exec"
+            text == "字节" -> return "B"
+            text == "活动" -> return "Active"
+            text == "运行中" -> return "Running"
+            text == "已暂停" -> return "Paused"
+            text == "已停止" -> return "Stopped"
+            text == "目标" -> return "PID"
+            text == "线程" -> return "Threads"
+            text == "架构" -> return "Arch"
+            text == "寄存器" -> return "Registers"
+            text == "浮点" -> return "FP"
+            text == "回溯" -> return "Backtrace"
+            text == "确认添加" -> return "Add"
+            text == "写入汇编" -> return "Write ASM"
+            text == "写入汇编指令" -> return "Write Assembly"
+            text == "写入地址 (HEX)" -> return "Target Address (HEX)"
+            text == "指令集架构" -> return "Architecture"
+            text == "机器码预览" -> return "Machine Code Preview"
+            text == "汇编引擎扩展" -> return "Assembly Engine Pack"
+            text == "Keystone / Capstone 引擎包" -> return "Keystone / Capstone Pack"
+            text == "已就绪" -> return "Ready"
+            text == "部分加载" -> return "Partial"
+            text == "未导入" -> return "Not Imported"
+            text == "导入压缩包 (.zip)" -> return "Import Pack (.zip)"
+            text == "重新导入压缩包" -> return "Re-import Pack"
+            text == "移除" -> return "Remove"
+            text == "应用变速" -> return "Apply Speed"
+            text == "重置 1.0x" -> return "Reset 1.0x"
+            text == "分配" -> return "Allocate"
+            text == "采集寄存器与调用链回溯" -> return "Capture Registers & Backtrace"
+            text == "命中断点时自动记录完整寄存器状态及栈回溯" -> return "Automatically record GPR/FP registers and callstack on hit"
         }
         return text
     }

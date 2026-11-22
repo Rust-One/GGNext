@@ -1,11 +1,9 @@
 package com.littlecodesauce.ggnext.ui.components
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -17,7 +15,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,10 +24,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -58,15 +57,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.littlecodesauce.ggnext.core.NextTab
 import com.littlecodesauce.ggnext.core.Session
-import com.littlecodesauce.ggnext.data.AppIconCache
 import com.littlecodesauce.ggnext.data.ProcessScanner
 import com.littlecodesauce.ggnext.model.TargetProcess
 import com.littlecodesauce.ggnext.ui.model.ToolId
@@ -76,26 +75,28 @@ import com.littlecodesauce.ggnext.ui.theme.Rose
 import com.littlecodesauce.ggnext.ui.theme.regionColor
 
 /**
- * 顶部导航栏：
- * - 左侧当前进程图标按钮
- * - 4 个导航页签（设置 / 搜索列表 / 保存列表 / 内存）共享一个带物理弹簧移动效果的跟随背景胶囊与底部指示条
+ * 顶部导航栏（竖屏与横屏统一位于顶部）：
+ * - 5 个导航页签（设置 / 搜索列表 / 保存列表 / 内存 / 调试）共享一个带“弹性拉伸回弹（蠕虫物理效果）”的底部横条指示器
  * - 右侧关闭/最小化按钮（×）
  */
 @Composable
 fun NavBar(
     tab: NextTab,
-    target: TargetProcess?,
     searchCount: Int,
     savedCount: Int,
-    onPickProcess: () -> Unit,
+    debugCount: Int = 0,
     onTab: (NextTab) -> Unit,
     onMinimize: () -> Unit
 ) {
     val primary = MaterialTheme.colorScheme.primary
-    val ctx = LocalContext.current
-    val appBmp = remember(target?.packageName, target?.apkPath) {
-        target?.let { AppIconCache.get(ctx, it.packageName, it.apkPath) }
+    val tabCount = 5
+    val prevOrdinalRef = remember { intArrayOf(tab.ordinal) }
+    val movingRightRef = remember { booleanArrayOf(true) }
+    if (tab.ordinal != prevOrdinalRef[0]) {
+        movingRightRef[0] = tab.ordinal > prevOrdinalRef[0]
+        prevOrdinalRef[0] = tab.ordinal
     }
+    val movingRight = movingRightRef[0]
 
     Row(
         Modifier
@@ -103,59 +104,43 @@ fun NavBar(
             .padding(horizontal = 6.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        var iconPressed by remember { mutableStateOf(false) }
-        val iconScale by animateFloatAsState(if (iconPressed) 0.88f else 1f, Motion.Fast, label = "procIcon")
-        Box(
-            Modifier
-                .size(38.dp)
-                .scale(iconScale)
-                .clip(RoundedCornerShape(10.dp))
-                .background(Rose.CardHigh)
-                .clickableWithTooltip(
-                    onPressChange = { iconPressed = it },
-                    onClick = onPickProcess
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            if (appBmp != null) {
-                Image(bitmap = appBmp, contentDescription = target?.label, modifier = Modifier.size(32.dp))
-            } else {
-                Text("G", color = primary, fontSize = fsp(17f), fontWeight = FontWeight.Bold)
-            }
-        }
-
-        Spacer(Modifier.width(4.dp))
-
         BoxWithConstraints(
             modifier = Modifier
-                .weight(4f)
+                .weight(5f)
                 .height(44.dp)
         ) {
-            val slotWidth = maxWidth / 4f
-            val indicatorX by animateDpAsState(
-                targetValue = slotWidth * tab.ordinal,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessMedium
-                ),
-                label = "navSlideX"
+            val slotWidth = maxWidth / tabCount.toFloat()
+            val baseBarWidth = 24.dp
+            val targetLeft = slotWidth * tab.ordinal + (slotWidth - baseBarWidth) / 2f
+            val targetRight = targetLeft + baseBarWidth
+
+            // 舒缓优雅的阻尼弹簧：切换页签时底部横条平顺拉长滑行，抵达后轻柔收拢，避免生硬回弹
+            val leadSpring = spring<Dp>(dampingRatio = 0.96f, stiffness = 340f)
+            val trailSpring = spring<Dp>(dampingRatio = 0.98f, stiffness = 155f)
+
+            val barLeft by animateDpAsState(
+                targetValue = targetLeft,
+                animationSpec = if (movingRight) trailSpring else leadSpring,
+                label = "navBarLeft"
             )
+            val barRight by animateDpAsState(
+                targetValue = targetRight,
+                animationSpec = if (movingRight) leadSpring else trailSpring,
+                label = "navBarRight"
+            )
+
+            val renderedLeft = minOf(barLeft, barRight)
+            val renderedWidth = (maxOf(barLeft, barRight) - renderedLeft).coerceAtLeast(18.dp)
 
             Box(
                 Modifier
-                    .offset(x = indicatorX)
-                    .width(slotWidth)
-                    .height(44.dp)
+                    .align(Alignment.BottomStart)
                     .padding(bottom = 2.dp)
-            ) {
-                Box(
-                    Modifier
-                        .align(Alignment.BottomCenter)
-                        .width(24.dp)
-                        .height(2.5.dp)
-                        .background(primary, RoundedCornerShape(2.dp))
-                )
-            }
+                    .offset(x = renderedLeft)
+                    .width(renderedWidth)
+                    .height(2.8.dp)
+                    .background(primary, RoundedCornerShape(999.dp))
+            )
 
             Row(
                 Modifier.fillMaxSize(),
@@ -194,6 +179,15 @@ fun NavBar(
                     primary = primary,
                     modifier = Modifier.weight(1f)
                 ) { onTab(NextTab.MEMORY) }
+
+                NavIcon(
+                    icon = Icons.Rounded.BugReport,
+                    desc = "调试",
+                    selected = tab == NextTab.DEBUG,
+                    primary = primary,
+                    badgeCount = debugCount,
+                    modifier = Modifier.weight(1f)
+                ) { onTab(NextTab.DEBUG) }
             }
         }
 
@@ -202,144 +196,8 @@ fun NavBar(
             desc = "收起面板",
             selected = false,
             primary = primary,
-            modifier = Modifier.weight(0.86f),
+            modifier = Modifier.width(44.dp),
             onClick = onMinimize
-        )
-    }
-}
-
-/**
- * 横屏左侧竖向导航栏（Rail）：
- * - 顶部当前进程图标按钮
- * - 下方 4 个竖排导航页签 + Y 轴弹簧跟随底部横条指示器（无遮罩背景）
- * - 最小化按钮（×）在横屏模式下固定于工具栏最右侧
- * - 右侧 0.6dp 细分割线
- */
-@Composable
-fun VerticalNavRail(
-    tab: NextTab,
-    target: TargetProcess?,
-    searchCount: Int,
-    savedCount: Int,
-    onPickProcess: () -> Unit,
-    onTab: (NextTab) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val primary = MaterialTheme.colorScheme.primary
-    val ctx = LocalContext.current
-    val appBmp = remember(target?.packageName, target?.apkPath) {
-        target?.let { AppIconCache.get(ctx, it.packageName, it.apkPath) }
-    }
-
-    Row(modifier = modifier.fillMaxHeight()) {
-        Column(
-            modifier = Modifier
-                .width(52.dp)
-                .fillMaxHeight()
-                .padding(horizontal = 4.dp, vertical = 6.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            var iconPressed by remember { mutableStateOf(false) }
-            val iconScale by animateFloatAsState(if (iconPressed) 0.88f else 1f, Motion.Fast, label = "railProcIcon")
-            Box(
-                Modifier
-                    .size(38.dp)
-                    .scale(iconScale)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Rose.CardHigh)
-                    .clickableWithTooltip(
-                        tooltip = "选择进程",
-                        onPressChange = { iconPressed = it },
-                        onClick = onPickProcess
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (appBmp != null) {
-                    Image(bitmap = appBmp, contentDescription = target?.label, modifier = Modifier.size(30.dp))
-                } else {
-                    Text("G", color = primary, fontSize = fsp(16f), fontWeight = FontWeight.Bold)
-                }
-            }
-
-            Spacer(Modifier.height(6.dp))
-
-            BoxWithConstraints(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-            ) {
-                val slotHeight = (maxHeight / 4f).coerceAtLeast(40.dp)
-                val indicatorY by animateDpAsState(
-                    targetValue = slotHeight * tab.ordinal,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessMedium
-                    ),
-                    label = "railSlideY"
-                )
-
-                Box(
-                    Modifier
-                        .offset(y = indicatorY)
-                        .fillMaxWidth()
-                        .height(slotHeight)
-                        .padding(bottom = 4.dp)
-                ) {
-                    Box(
-                        Modifier
-                            .align(Alignment.BottomCenter)
-                            .width(20.dp)
-                            .height(2.5.dp)
-                            .background(primary, RoundedCornerShape(2.dp))
-                    )
-                }
-
-                Column(
-                    Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    NavIcon(
-                        icon = Icons.Rounded.Tune,
-                        desc = "设置",
-                        selected = tab == NextTab.SETTINGS,
-                        primary = primary,
-                        modifier = Modifier.weight(1f).fillMaxWidth()
-                    ) { onTab(NextTab.SETTINGS) }
-
-                    NavIcon(
-                        icon = Icons.Rounded.Search,
-                        desc = "搜索列表",
-                        selected = tab == NextTab.SEARCH_LIST,
-                        primary = primary,
-                        badgeCount = searchCount,
-                        modifier = Modifier.weight(1f).fillMaxWidth()
-                    ) { onTab(NextTab.SEARCH_LIST) }
-
-                    NavIcon(
-                        icon = Icons.Rounded.Save,
-                        desc = "保存列表",
-                        selected = tab == NextTab.SAVED_LIST,
-                        primary = primary,
-                        badgeCount = savedCount,
-                        modifier = Modifier.weight(1f).fillMaxWidth()
-                    ) { onTab(NextTab.SAVED_LIST) }
-
-                    NavIcon(
-                        icon = GgIcons.MemoryList,
-                        desc = "内存编辑器",
-                        selected = tab == NextTab.MEMORY,
-                        primary = primary,
-                        modifier = Modifier.weight(1f).fillMaxWidth()
-                    ) { onTab(NextTab.MEMORY) }
-                }
-            }
-        }
-
-        Box(
-            Modifier
-                .width(0.6.dp)
-                .fillMaxHeight()
-                .background(Rose.Divider)
         )
     }
 }
@@ -378,9 +236,12 @@ private fun NavIcon(
         Motion.ColorNormal,
         label = "navTint"
     )
+    val badgeText = remember(badgeCount) { formatNavBadgeCount(badgeCount) }
+    val density = LocalDensity.current
+
     Box(
         modifier
-            .padding(horizontal = 2.dp)
+            .padding(horizontal = 1.dp)
             .height(44.dp)
             .scale(scale)
             .clickableWithTooltip(
@@ -390,37 +251,64 @@ private fun NavIcon(
             ),
         contentAlignment = Alignment.Center
     ) {
-        if (badgeCount > 0) {
-            Column(
-                modifier = Modifier.padding(bottom = 3.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
+        // 使用自定义 Layout 保证 22dp 主图标始终严格居中不动，同时将紧凑计数气泡精准锚定在图标右上角并做边缘安全限位
+        Layout(
+            modifier = Modifier.fillMaxSize(),
+            content = {
                 Icon(
                     imageVector = icon,
                     contentDescription = desc,
                     tint = tint,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(22.dp)
                 )
-                Spacer(Modifier.height(1.dp))
-                Text(
-                    text = formatNavBadgeCount(badgeCount),
-                    color = if (selected) primary else Rose.TextSecond,
-                    fontSize = fsp(9.5f),
-                    lineHeight = fsp(10.5f),
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Clip
-                )
+                if (badgeText.isNotEmpty()) {
+                    val badgeBg = if (selected) primary else Rose.CardHigh
+                    val badgeFg = if (selected) Rose.OnPrimary else Rose.Text
+                    val badgeBorder = if (selected) Rose.Surface else Rose.Divider
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(badgeBg, RoundedCornerShape(999.dp))
+                            .border(0.9.dp, badgeBorder, RoundedCornerShape(999.dp))
+                            .padding(horizontal = 4.dp, vertical = 1.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = badgeText,
+                            color = badgeFg,
+                            fontSize = fsp(8.5f),
+                            lineHeight = fsp(9.5f),
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Clip
+                        )
+                    }
+                }
             }
-        } else {
-            Icon(
-                imageVector = icon,
-                contentDescription = desc,
-                tint = tint,
-                modifier = Modifier.size(22.dp)
-            )
+        ) { measurables, constraints ->
+            val loose = constraints.copy(minWidth = 0, minHeight = 0)
+            val iconPlaceable = measurables[0].measure(loose)
+            val badgePlaceable = measurables.getOrNull(1)?.measure(loose)
+            val w = constraints.maxWidth.coerceAtLeast(iconPlaceable.width)
+            val h = constraints.maxHeight.coerceAtLeast(iconPlaceable.height)
+            layout(w, h) {
+                val iconX = (w - iconPlaceable.width) / 2
+                val iconY = (h - iconPlaceable.height) / 2
+                iconPlaceable.placeRelative(iconX, iconY)
+                if (badgePlaceable != null) {
+                    val anchorOverlapX = with(density) { 4.dp.roundToPx() }
+                    val edgePad = with(density) { 1.dp.roundToPx() }
+                    val topPad = with(density) { 2.dp.roundToPx() }
+                    val idealX = iconX + iconPlaceable.width - anchorOverlapX
+                    val badgeX = idealX
+                        .coerceAtMost((w - badgePlaceable.width - edgePad).coerceAtLeast(0))
+                        .coerceAtLeast(0)
+                    val idealY = iconY - (badgePlaceable.height / 2) + with(density) { 2.dp.roundToPx() }
+                    val badgeY = idealY.coerceAtLeast(topPad)
+                    badgePlaceable.placeRelative(badgeX, badgeY)
+                }
+            }
         }
     }
 }
@@ -442,7 +330,6 @@ fun ToolBar(
     onMoreMenu: () -> Unit,
     onMoveFlowingTool: (from: Int, to: Int) -> Unit,
     onMovePinnedTool: (from: Int, to: Int) -> Unit,
-    onMinimize: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
@@ -697,29 +584,6 @@ fun ToolBar(
             }
         }
 
-        if (onMinimize != null) {
-            Spacer(Modifier.width(2.dp))
-            var minPressed by remember { mutableStateOf(false) }
-            val minScale by animateFloatAsState(if (minPressed) 0.88f else 1f, Motion.Fast, label = "toolMinScale")
-            Box(
-                Modifier
-                    .size(40.dp)
-                    .scale(minScale)
-                    .clickableWithTooltip(
-                        tooltip = "收起面板",
-                        onPressChange = { minPressed = it },
-                        onClick = onMinimize
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Close,
-                    contentDescription = "收起面板",
-                    tint = Rose.Text,
-                    modifier = Modifier.size(21.dp)
-                )
-            }
-        }
     }
 }
 
@@ -798,8 +662,7 @@ fun ProcessBar(
     onPick: () -> Unit,
     onCountClick: () -> Unit,
     onRefresh: () -> Unit,
-    onPause: () -> Unit,
-    onMinimize: (() -> Unit)? = null
+    onPause: () -> Unit
 ) {
     Row(
         Modifier
@@ -922,29 +785,6 @@ fun ProcessBar(
             )
         }
 
-        if (onMinimize != null) {
-            Spacer(Modifier.width(4.dp))
-            var minPressed by remember { mutableStateOf(false) }
-            val minScale by animateFloatAsState(if (minPressed) 0.88f else 1f, Motion.Fast, label = "procMinScale")
-            Box(
-                Modifier
-                    .size(24.dp)
-                    .scale(minScale)
-                    .clickableWithTooltip(
-                        tooltip = "收起面板",
-                        onPressChange = { minPressed = it },
-                        onClick = onMinimize
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Close,
-                    contentDescription = "收起面板",
-                    tint = Rose.Text,
-                    modifier = Modifier.size(17.dp)
-                )
-            }
-        }
     }
 }
 
@@ -977,7 +817,7 @@ fun InlineSearchProgressBar(ui: com.littlecodesauce.ggnext.core.Ui) {
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                text = tr(sp.busyText.ifEmpty { ui.busyText.ifEmpty { "搜索中..." } }),
+                text = tr(sp.text.ifEmpty { ui.busyText.ifEmpty { "搜索中..." } }),
                 color = Rose.Primary,
                 fontSize = fsp(11f),
                 fontWeight = FontWeight.Medium,
@@ -1043,42 +883,78 @@ fun InlineSearchProgressBar(ui: com.littlecodesauce.ggnext.core.Ui) {
 
 /**
  * 合并底栏：已选内存类型 + 已选数量
+ * - 背景完全透明，悬浮覆盖在列表底部，使后方列表数据清晰可见；
+ * - 横屏模式下缩小区块宽度与间距，减少对列表视觉遮挡。
  */
 @Composable
 fun RegionSummaryBar(
     codes: List<String>,
     checkedItemCount: Int,
     onLongPress: () -> Unit,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE ||
+        configuration.screenWidthDp > configuration.screenHeightDp
+    val textShadow = androidx.compose.ui.graphics.Shadow(
+        color = if (Rose.IsDark) Color(0xD9000000) else Color(0xB3FFFFFF),
+        offset = androidx.compose.ui.geometry.Offset(0f, 1f),
+        blurRadius = 4f
+    )
+    val fontSizeSp = fsp(if (isLandscape) 10.5f else 11.2f)
+
     Row(
-        Modifier
-            .fillMaxWidth()
+        modifier
             .navigationBarsPadding()
-            .height(26.dp)
-            .padding(horizontal = 14.dp)
-            .clickableLongPress(onClick = onClick, onLongPress = onLongPress),
+            .then(
+                if (isLandscape) {
+                    Modifier
+                        .wrapContentWidth()
+                        .widthIn(max = 360.dp)
+                } else {
+                    Modifier
+                        .wrapContentWidth()
+                        .padding(horizontal = 8.dp)
+                }
+            )
+            .height(if (isLandscape) 22.dp else 25.dp)
+            .background(Color.Transparent)
+            .clickableLongPress(onClick = onClick, onLongPress = onLongPress)
+            .padding(horizontal = if (isLandscape) 8.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center
     ) {
         Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(if (isLandscape) 4.dp else 5.5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             codes.forEach { code ->
                 Text(
                     text = code,
-                    color = regionColor(code),
-                    fontSize = fsp(11.5f),
-                    fontWeight = FontWeight.Medium
+                    style = androidx.compose.ui.text.TextStyle(
+                        color = regionColor(code),
+                        fontSize = fontSizeSp,
+                        fontWeight = FontWeight.SemiBold,
+                        shadow = textShadow
+                    ),
+                    maxLines = 1
                 )
             }
         }
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(if (isLandscape) 8.dp else 10.dp))
         Text(
             text = tr("已选 $checkedItemCount"),
-            color = Rose.TextSecond,
-            fontSize = fsp(11.5f)
+            style = androidx.compose.ui.text.TextStyle(
+                color = Rose.TextSecond,
+                fontSize = fontSizeSp,
+                fontWeight = FontWeight.Medium,
+                shadow = textShadow
+            ),
+            maxLines = 1
         )
     }
 }

@@ -25,6 +25,8 @@ object Formatter {
     const val F_BYTE = 1 shl 11
     const val F_QWORD = 1 shl 12
     const val F_XOR = 1 shl 13
+    const val F_X86 = 1 shl 14
+    const val F_X64 = 1 shl 15
 
     const val DEFAULT_MASK = F_HEX or F_DWORD or F_FLOAT
 
@@ -35,6 +37,11 @@ object Formatter {
         FormatItem(F_RHEX, "r", "HEX 逆序"),
         FormatItem(F_STRING, "S", "字符串"),
         FormatItem(F_JAVA, "J", "Java 字符串"),
+        FormatItem(F_ARM8, "A8", "ARM64 汇编 (A8)"),
+        FormatItem(F_ARM, "A", "ARM 汇编 (A)"),
+        FormatItem(F_THUMB, "T", "Thumb 汇编 (T)"),
+        FormatItem(F_X64, "x64", "x86_64 汇编"),
+        FormatItem(F_X86, "x86", "x86 汇编"),
         FormatItem(F_DWORD, "D", "Dword"),
         FormatItem(F_FLOAT, "F", "Float"),
         FormatItem(F_DOUBLE, "E", "Double"),
@@ -43,6 +50,15 @@ object Formatter {
         FormatItem(F_QWORD, "Q", "Qword"),
         FormatItem(F_XOR, "X", "Xor")
     )
+
+    fun activeAsmArch(mask: Int): com.littlecodesauce.ggnext.model.AsmArch? = when {
+        mask and F_ARM8 != 0 -> com.littlecodesauce.ggnext.model.AsmArch.ARM64
+        mask and F_ARM != 0 -> com.littlecodesauce.ggnext.model.AsmArch.ARM
+        mask and F_THUMB != 0 -> com.littlecodesauce.ggnext.model.AsmArch.THUMB
+        mask and F_X64 != 0 -> com.littlecodesauce.ggnext.model.AsmArch.X86_64
+        mask and F_X86 != 0 -> com.littlecodesauce.ggnext.model.AsmArch.X86
+        else -> null
+    }
 
     fun maskSummary(mask: Int): String =
         items.filter { mask and it.bit != 0 }.joinToString(",") { it.short }.ifEmpty { "-" }

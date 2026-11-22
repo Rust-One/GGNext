@@ -15,6 +15,8 @@ import com.littlecodesauce.ggnext.model.ValueType
  */
 object NumberParser {
 
+    const val DEFAULT_GROUP_AREA = 512
+
     class ParseException(message: String) : Exception(AppStrings.tr(message))
 
     enum class Kind { NUMBER, TEXT, RANGE, GROUP }
@@ -33,7 +35,7 @@ object NumberParser {
         val xorKey: Long = 0L,
         /** GG 异或偏移搜索（如 25X4, 25X8, 25X-4，表示 [addr] ^ [addr + xorOffset] == target） */
         val xorOffset: Int = 0,
-        val area: Int = 512,
+        val area: Int = DEFAULT_GROUP_AREA,
         val ordered: Boolean = false,
         val notRange: Boolean = false,
         val textBytes: ByteArray = ByteArray(0),
@@ -51,6 +53,77 @@ object NumberParser {
     fun isText(raw: String): Boolean {
         val t = raw.trim()
         return t.length > 1 && (t[0] == '\'' || t[0] == '"' || t[0] == ':' || t[0] == ';')
+    }
+
+    /** 判断输入是否为联合搜索表达式（不含文本前缀） */
+    fun isGroupExpression(raw: String): Boolean {
+        val t = raw.trim()
+        if (t.isEmpty() || isText(t)) return false
+        val norm = t.replace('；', ';').replace('：', ':')
+        return norm.contains(';') || norm.contains("::") || norm.count { it == ':' } >= 2
+    }
+
+    /** 提取联合搜索的 (ordered, area)，未指定距离时默认 512 */
+    fun extractGroupMeta(raw: String): Pair<Boolean, Int> {
+        val norm = raw.trim().replace('；', ';').replace('：', ':')
+        if (norm.isEmpty() || isText(norm)) return false to DEFAULT_GROUP_AREA
+        if (norm.contains("::")) {
+            val idx = norm.lastIndexOf("::")
+            val areaStr = norm.substring(idx + 2).trim()
+            val area = runCatching { if (areaStr.isEmpty()) DEFAULT_GROUP_AREA else parseAreaSpan(areaStr) }
+                .getOrDefault(DEFAULT_GROUP_AREA)
+            return true to area
+        }
+        if (norm.contains(';')) {
+            val idx = norm.lastIndexOf(':')
+            if (idx >= 0) {
+                val areaStr = norm.substring(idx + 1).trim()
+                val area = runCatching { if (areaStr.isEmpty()) DEFAULT_GROUP_AREA else parseAreaSpan(areaStr) }
+                    .getOrDefault(DEFAULT_GROUP_AREA)
+                return false to area
+            }
+            return false to DEFAULT_GROUP_AREA
+        }
+        val parts = norm.split(':')
+        if (parts.size >= 3) {
+            val areaStr = parts.last().trim()
+            val area = runCatching { if (areaStr.isEmpty()) DEFAULT_GROUP_AREA else parseAreaSpan(areaStr) }
+                .getOrDefault(DEFAULT_GROUP_AREA)
+            return false to area
+        }
+        return false to DEFAULT_GROUP_AREA
+    }
+
+    /**
+     * 规范化联合搜索表达式，显式带上冒号距离（如 1;2:512 或 1;2::512）。
+     */
+    fun normalizeGroupExpression(raw: String, ordered: Boolean? = null, area: Int? = null): String {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty() || isText(trimmed)) return trimmed
+        val norm = trimmed.replace('；', ';').replace('：', ':').replace('～', '~')
+        val (curOrdered, curArea) = extractGroupMeta(norm)
+        val targetOrdered = ordered ?: curOrdered
+        val targetArea = (area ?: curArea).coerceIn(2, 65536)
+
+        val bodyPart = when {
+            norm.contains("::") -> norm.substring(0, norm.lastIndexOf("::")).trimEnd(':', ';', ' ')
+            norm.contains(';') -> {
+                val idx = norm.lastIndexOf(':')
+                if (idx >= 0) norm.substring(0, idx).trimEnd(':', ';', ' ')
+                else norm.trimEnd(':', ';', ' ')
+            }
+            norm.count { it == ':' } >= 2 -> {
+                val parts = norm.split(':').map { it.trim() }
+                parts.dropLast(1).filter { it.isNotEmpty() }.joinToString(";")
+            }
+            norm.contains(':') -> {
+                norm.split(':').map { it.trim() }.filter { it.isNotEmpty() }.joinToString(";")
+            }
+            else -> norm
+        }
+        if (bodyPart.isEmpty()) return trimmed
+        val sep = if (targetOrdered) "::" else ":"
+        return "$bodyPart$sep$targetArea"
     }
 
     /** 解析一条完整输入（自动识别联合/范围/文本/异或/反向十六进制） */

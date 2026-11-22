@@ -55,8 +55,6 @@ object RootMemDaemon {
     var lastStartError: String = ""
         private set
 
-    typealias RawCandidate = MemoryBackend.RawCandidate
-
     private fun shellQuote(s: String): String =
         "'" + s.replace("'", "'\"'\"'") + "'"
 
@@ -1007,6 +1005,80 @@ object RootMemDaemon {
             }
             out
         } ?: emptyList()
+    }
+
+    // ============ Hardware Breakpoints (Perf & Ptrace) ============
+
+    @Synchronized
+    fun bpAdd(
+        address: Long,
+        bpType: Int,
+        bpSize: Int,
+        bpMode: Int,
+        captureCallstack: Boolean
+    ): Pair<Int, String> {
+        val addrHex = java.lang.Long.toUnsignedString(address, 16)
+        val cap = if (captureCallstack) 1 else 0
+        val resp = sendCommandLocked("BP_ADD $addrHex $bpType $bpSize $bpMode $cap", isScan = false)
+            ?: return -1 to "守护进程未响应"
+        if (resp.startsWith("OK ")) {
+            val id = resp.removePrefix("OK ").trim().toIntOrNull() ?: -1
+            return id to ""
+        }
+        return -1 to resp.removePrefix("ERR ").trim().ifEmpty { "添加断点失败" }
+    }
+
+    @Synchronized
+    fun bpRemove(bpId: Int): Boolean {
+        val resp = sendCommandLocked("BP_REMOVE $bpId", isScan = false) ?: return false
+        return resp.startsWith("OK")
+    }
+
+    @Synchronized
+    fun bpSetPaused(bpId: Int, paused: Boolean): Boolean {
+        val p = if (paused) 1 else 0
+        val resp = sendCommandLocked("BP_PAUSE $bpId $p", isScan = false) ?: return false
+        return resp.startsWith("OK")
+    }
+
+    @Synchronized
+    fun bpSetAllPaused(paused: Boolean): Boolean {
+        val p = if (paused) 1 else 0
+        val resp = sendCommandLocked("BP_PAUSE_ALL $p", isScan = false) ?: return false
+        return resp.startsWith("OK")
+    }
+
+    @Synchronized
+    fun bpClearHits(bpId: Int = 0): Boolean {
+        val resp = sendCommandLocked("BP_CLEAR_HITS $bpId", isScan = false) ?: return false
+        return resp.startsWith("OK")
+    }
+
+    @Synchronized
+    fun bpStopAll(): Boolean {
+        val resp = sendCommandLocked("BP_STOP_ALL", isScan = false) ?: return false
+        return resp.startsWith("OK")
+    }
+
+    @Synchronized
+    fun bpSnapshotJson(): String {
+        val resp = sendCommandLocked("BP_SNAPSHOT", isScan = false) ?: return "[]"
+        return if (resp.startsWith("OK ")) resp.removePrefix("OK ").trim() else "[]"
+    }
+
+    @Synchronized
+    fun setSpeedConfig(pid: Int, rate: Float): Boolean {
+        val resp = sendCommandLocked("SET_SPEED_CFG $pid ${formatDouble(rate.toDouble())}", isScan = false) ?: return false
+        return resp.startsWith("OK")
+    }
+
+    @Synchronized
+    fun allocPageLocal(hintAddr: Long, size: Int, prot: Int): Long {
+        val addrHex = java.lang.Long.toUnsignedString(hintAddr, 16)
+        val resp = sendCommandLocked("ALLOC_PAGE_LOCAL $addrHex $size $prot", isScan = false) ?: return 0L
+        if (!resp.startsWith("OK ")) return 0L
+        val hex = resp.removePrefix("OK ").trim()
+        return parseHexLong(hex, 0, hex.length) ?: 0L
     }
 
     private val HEX_CHARS = "0123456789ABCDEF".toCharArray()

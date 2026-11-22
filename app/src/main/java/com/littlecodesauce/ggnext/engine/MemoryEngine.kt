@@ -394,6 +394,12 @@ class MemoryEngine {
         return activeBackend?.writeBlock(address, buf) == true
     }
 
+    /** 写入任意长度原始字节块（供 Keystone 汇编补丁与十六进制流写入使用） */
+    fun writeBlock(address: Long, data: ByteArray): Boolean {
+        if (!attachedOk || pid <= 0 || data.isEmpty()) return false
+        return activeBackend?.writeBlock(address, data) == true
+    }
+
     /** 设置或取消指定地址的冻结锁值（同步到 C++20 ValueLocker 独立高频锁值线程，原生支持全部 4 种冻结模式） */
     fun setFreeze(
         address: Long,
@@ -1586,6 +1592,148 @@ class MemoryEngine {
             ValueType.WORD -> ((raw.toShort() + delta.toInt()) and 0xFFFF).toLong()
             ValueType.DWORD, ValueType.XOR -> ((raw.toInt() + delta.toInt()).toLong() and 0xFFFFFFFFL)
             else -> raw + delta
+        }
+    }
+
+    // ============ 硬件断点调试器 (Perf / Ptrace，兼容 Root 与免 Root 同 UID) ============
+
+    fun bpAdd(
+        address: Long,
+        bpType: com.littlecodesauce.ggnext.model.BpType,
+        sizeBytes: Int,
+        bpMode: com.littlecodesauce.ggnext.model.BpMode,
+        captureCallstack: Boolean
+    ): Pair<Int, String> {
+        if (!attachedOk || pid <= 0) return -1 to "请先附加目标进程"
+        if (rootDaemonActive) {
+            return RootMemDaemon.bpAdd(address, bpType.code, sizeBytes, bpMode.code, captureCallstack)
+        }
+        val h = NativeMemBridge.ensureHandle()
+        if (h == 0L) return -1 to "原生调试引擎未就绪"
+        val id = NativeMemBridge.nativeBpAdd(h, pid, address, bpType.code, sizeBytes, bpMode.code, captureCallstack)
+        return if (id > 0) id to "" else -1 to "添加断点失败（免 Root 模式下请确认目标同 UID 且选择 Ptrace 模式）"
+    }
+
+    fun bpRemove(bpId: Int): Boolean {
+        if (rootDaemonActive) return RootMemDaemon.bpRemove(bpId)
+        val h = NativeMemBridge.currentHandle()
+        return h != 0L && NativeMemBridge.nativeBpRemove(h, bpId)
+    }
+
+    fun bpSetPaused(bpId: Int, paused: Boolean): Boolean {
+        if (rootDaemonActive) return RootMemDaemon.bpSetPaused(bpId, paused)
+        val h = NativeMemBridge.currentHandle()
+        return h != 0L && NativeMemBridge.nativeBpSetPaused(h, bpId, paused)
+    }
+
+    fun bpSetAllPaused(paused: Boolean): Boolean {
+        if (rootDaemonActive) return RootMemDaemon.bpSetAllPaused(paused)
+        val h = NativeMemBridge.currentHandle()
+        return h != 0L && NativeMemBridge.nativeBpSetPaused(h, 0, paused)
+    }
+
+    fun bpClearHits(bpId: Int = 0) {
+        if (rootDaemonActive) {
+            RootMemDaemon.bpClearHits(bpId)
+        } else {
+            val h = NativeMemBridge.currentHandle()
+            if (h != 0L) NativeMemBridge.nativeBpClearHits(h, bpId)
+        }
+    }
+
+    fun bpStopAll() {
+        if (rootDaemonActive) {
+            RootMemDaemon.bpStopAll()
+        } else {
+            val h = NativeMemBridge.currentHandle()
+            if (h != 0L) NativeMemBridge.nativeBpStopAll(h)
+        }
+    }
+
+    fun bpSnapshot(): List<com.littlecodesauce.ggnext.model.BpSession> {
+        val json = if (rootDaemonActive) {
+            RootMemDaemon.bpSnapshotJson()
+        } else {
+            val h = NativeMemBridge.currentHandle()
+            if (h != 0L) NativeMemBridge.nativeBpSnapshotJson(h) else "[]"
+        }
+        return com.littlecodesauce.ggnext.model.BpSnapshotParser.parse(json) { arch, pc, insnHex ->
+            AsmEngineManager.disassembleHex(arch, pc, insnHex)
+        }
+    }
+
+    // ============ 变速控制 (ShadowHook + xDL Agent) ============
+
+    fun applySpeedMultiplier(
+        rate: Float,
+        targetPkg: String?,
+        enableWrapProperty: Boolean = false
+    ): Pair<Boolean, String> {
+        val clamped = rate.coerceIn(0.01f, 100f)
+        val myPid = android.os.Process.myPid()
+        if (pid == myPid || pid <= 0) {
+            val ok = NativeMemBridge.isLoaded && NativeMemBridge.nativeAgentSetSpeed(clamped)
+            return if (ok) {
+                true to "ShadowHook 进程内变速已生效 (${clamped}x)"
+            } else {
+                false to "ShadowHook 仅支持 ARM/ARM64 架构或原生库未加载"
+            }
+        }
+        if (rootDaemonActive) {
+            val cfgOk = RootMemDaemon.setSpeedConfig(pid, clamped)
+            val agentSo = appContextRef?.applicationInfo?.nativeLibraryDir?.let { File(it, "libggnext_agent.so") }
+            if (enableWrapProperty && !targetPkg.isNullOrBlank() && agentSo != null && agentSo.exists()) {
+                val staged = "/data/local/tmp/libggnext_agent.so"
+                val cmd = buildString {
+                    append("cp -f '").append(agentSo.absolutePath).append("' ").append(staged)
+                    append(" && chmod 755 ").append(staged)
+                    append(" && (chcon u:object_r:system_file:s0 ").append(staged).append(" 2>/dev/null || true)")
+                    append(" && setprop wrap.").append(targetPkg)
+                        .append(" \"GGNEXT_AUTO_SPEED=1 LD_PRELOAD=").append(staged).append("\"")
+                }
+                Shell.runAs(cmd, asRoot = true)
+            }
+            return if (cfgOk) {
+                true to "已写入变速配置 ${clamped}x（目标 PID $pid，ShadowHook Agent 实时生效）"
+            } else {
+                false to "写入变速配置文件失败"
+            }
+        }
+        // 免 Root 同进程/虚拟空间直接调用 ShadowHook Agent
+        val localOk = NativeMemBridge.isLoaded && NativeMemBridge.nativeAgentSetSpeed(clamped)
+        return if (localOk) {
+            true to "已应用 ShadowHook 变速 ${clamped}x"
+        } else {
+            false to "变速设置失败：当前环境无 Root 且未在目标进程内加载 Agent"
+        }
+    }
+
+    // ============ 内存页分配 (mmap) ============
+
+    fun allocatePage(
+        hintAddr: Long,
+        read: Boolean,
+        write: Boolean,
+        exec: Boolean,
+        pageSize: Int = 4096
+    ): Pair<Long, String> {
+        var prot = 0
+        if (read) prot = prot or 1  // PROT_READ
+        if (write) prot = prot or 2 // PROT_WRITE
+        if (exec) prot = prot or 4  // PROT_EXEC
+        if (prot == 0) prot = 3     // default RW
+
+        val addr = if (rootDaemonActive && pid != android.os.Process.myPid()) {
+            RootMemDaemon.allocPageLocal(hintAddr, pageSize, prot)
+        } else if (NativeMemBridge.isLoaded) {
+            NativeMemBridge.nativeAgentAllocPage(hintAddr, pageSize, prot)
+        } else {
+            0L
+        }
+        return if (addr != 0L) {
+            addr to "已分配匿名内存页 0x${java.lang.Long.toUnsignedString(addr, 16).uppercase()}"
+        } else {
+            0L to "内存页分配失败（请检查权限标志或目标地址是否冲突）"
         }
     }
 }

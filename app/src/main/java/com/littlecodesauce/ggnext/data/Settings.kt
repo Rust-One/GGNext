@@ -86,7 +86,10 @@ object SettingsSpecs {
         SettingSpec("dialog_corner", "弹窗圆角", SettingKeys.GROUP_UI, SettingSpec.Kind.TEXT, "12"),
         SettingSpec("bg_opacity", "背景透明度", SettingKeys.GROUP_UI, SettingSpec.Kind.TEXT, "0.96"),
         SettingSpec("panel_scale", "页面屏幕占比", SettingKeys.GROUP_UI, SettingSpec.Kind.TEXT, "1.00"),
-        SettingSpec("skeleton", "列表动画", SettingKeys.GROUP_UI, SettingSpec.Kind.TEXT, "1")
+        SettingSpec("skeleton", "列表动画", SettingKeys.GROUP_UI, SettingSpec.Kind.TEXT, "1"),
+        SettingSpec("custom_font_path", "自定义字体路径", SettingKeys.GROUP_UI, SettingSpec.Kind.TEXT, ""),
+        SettingSpec("custom_font_name", "自定义字体名称", SettingKeys.GROUP_UI, SettingSpec.Kind.TEXT, ""),
+        SettingSpec("managed_fonts_json", "已导入字体列表", SettingKeys.GROUP_UI, SettingSpec.Kind.TEXT, "")
     )
 
     val other = listOf(

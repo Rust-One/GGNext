@@ -3,12 +3,25 @@
 #include "mem_engine/process_enum.hpp"
 #include "mem_engine/proc_io.hpp"
 #include "mem_engine/search_engine.hpp"
+#include "mem_engine/asm_engine.hpp"
+#include "mem_engine/debugger.hpp"
+#include "xdl.h"
 #include <memory>
 #include <mutex>
 #include <cstring>
 #include <fstream>
 #include <algorithm>
+#include <sstream>
+#include <sys/mman.h>
 #include <unistd.h>
+
+extern "C" {
+int ggnext_agent_install_hooks();
+void ggnext_agent_set_speed(float rate);
+float ggnext_agent_get_speed();
+uint64_t ggnext_agent_alloc_page(uint64_t hintAddr, size_t size, int prot);
+int ggnext_agent_is_hook_active();
+}
 
 #if __has_include(<jni.h>)
 #include <jni.h>
@@ -58,15 +71,17 @@ namespace {
 struct NativeEngineSession {
     std::mutex                                mtx;
     mem_engine::ProcIO                        io;
-    std::unique_ptr<mem_engine::SearchEngine> scanner;
-    std::unique_ptr<mem_engine::ValueLocker>  locker;
-    mem_engine::CancellationToken             cancelToken;
-    std::vector<mem_engine::VmaRegion>        cachedAllRegions;
-    mem_engine::VmaIndex                      vmaIndex;
+    std::unique_ptr<mem_engine::SearchEngine>      scanner;
+    std::unique_ptr<mem_engine::ValueLocker>       locker;
+    std::unique_ptr<mem_engine::BreakpointManager> debugger;
+    mem_engine::CancellationToken                  cancelToken;
+    std::vector<mem_engine::VmaRegion>             cachedAllRegions;
+    mem_engine::VmaIndex                           vmaIndex;
 
     explicit NativeEngineSession(size_t threads, const std::string& spillDir)
         : scanner(std::make_unique<mem_engine::SearchEngine>(io, threads, spillDir)),
-          locker(std::make_unique<mem_engine::ValueLocker>(io, 5)) {}
+          locker(std::make_unique<mem_engine::ValueLocker>(io, 5)),
+          debugger(std::make_unique<mem_engine::BreakpointManager>()) {}
 
     void refreshAllRegions() {
         if (io.pid() > 0) {
@@ -1067,6 +1082,297 @@ Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeUnlockAll(
     if (!session) return;
     std::lock_guard<std::mutex> lk(session->mtx);
     session->locker->unlockAll();
+}
+
+// ============================================================================
+// Hardware Breakpoint / Watchpoint JNI Bridge (Perf & Ptrace, supports No-Root)
+// ============================================================================
+
+JNIEXPORT jint JNICALL
+Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeBpAdd(
+    JNIEnv* /*env*/,
+    jclass /*clazz*/,
+    jlong handle,
+    jint pid,
+    jlong address,
+    jint bpType,
+    jint bpSize,
+    jint bpMode,
+    jboolean captureCallstack
+) {
+    auto* session = reinterpret_cast<NativeEngineSession*>(handle);
+    if (!session || !session->debugger) return -1;
+    int targetPid = (pid > 0) ? static_cast<int>(pid) : session->io.pid();
+    return static_cast<jint>(session->debugger->addBreakpoint(
+        targetPid,
+        static_cast<uint64_t>(address),
+        static_cast<mem_engine::BpType>(bpType),
+        static_cast<int32_t>(bpSize),
+        static_cast<mem_engine::BpMode>(bpMode),
+        captureCallstack == JNI_TRUE,
+        nullptr
+    ));
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeBpRemove(
+    JNIEnv* /*env*/,
+    jclass /*clazz*/,
+    jlong handle,
+    jint bpId
+) {
+    auto* session = reinterpret_cast<NativeEngineSession*>(handle);
+    if (!session || !session->debugger) return JNI_FALSE;
+    return session->debugger->removeBreakpoint(static_cast<int32_t>(bpId)) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeBpSetPaused(
+    JNIEnv* /*env*/,
+    jclass /*clazz*/,
+    jlong handle,
+    jint bpId,
+    jboolean paused
+) {
+    auto* session = reinterpret_cast<NativeEngineSession*>(handle);
+    if (!session || !session->debugger) return JNI_FALSE;
+    if (bpId <= 0) {
+        return session->debugger->setAllPaused(paused == JNI_TRUE) ? JNI_TRUE : JNI_FALSE;
+    }
+    return session->debugger->setPaused(static_cast<int32_t>(bpId), paused == JNI_TRUE) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeBpClearHits(
+    JNIEnv* /*env*/,
+    jclass /*clazz*/,
+    jlong handle,
+    jint bpId
+) {
+    auto* session = reinterpret_cast<NativeEngineSession*>(handle);
+    if (!session || !session->debugger) return;
+    if (bpId <= 0) session->debugger->clearAllHits();
+    else session->debugger->clearHits(static_cast<int32_t>(bpId));
+}
+
+JNIEXPORT void JNICALL
+Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeBpStopAll(
+    JNIEnv* /*env*/,
+    jclass /*clazz*/,
+    jlong handle
+) {
+    auto* session = reinterpret_cast<NativeEngineSession*>(handle);
+    if (!session || !session->debugger) return;
+    session->debugger->stopAll();
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeBpSnapshotJson(
+    JNIEnv* env,
+    jclass /*clazz*/,
+    jlong handle
+) {
+    auto* session = reinterpret_cast<NativeEngineSession*>(handle);
+    if (!session || !session->debugger) return env->NewStringUTF("[]");
+    std::string json = session->debugger->snapshotsToJson();
+    return env->NewStringUTF(json.c_str());
+}
+
+// ============================================================================
+// Dynamic Keystone & Capstone Assembly Engine JNI Bridge
+// ============================================================================
+
+JNIEXPORT jstring JNICALL
+Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeLoadAsmEngine(
+    JNIEnv* env,
+    jclass /*clazz*/,
+    jstring libDirJstr
+) {
+    std::string dir;
+    if (libDirJstr) {
+        const char* c = env->GetStringUTFChars(libDirJstr, nullptr);
+        if (c) {
+            dir = c;
+            env->ReleaseStringUTFChars(libDirJstr, c);
+        }
+    }
+    std::string err;
+    bool ok = mem_engine::AsmEngine::instance().loadFromDir(dir, &err);
+    if (ok) return env->NewStringUTF("OK");
+    return env->NewStringUTF(err.empty() ? "LOAD_FAILED" : err.c_str());
+}
+
+JNIEXPORT jint JNICALL
+Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeGetAsmEngineFlags(
+    JNIEnv* /*env*/,
+    jclass /*clazz*/
+) {
+    int flags = 0;
+    if (mem_engine::AsmEngine::instance().isKeystoneLoaded()) flags |= 1;
+    if (mem_engine::AsmEngine::instance().isCapstoneLoaded()) flags |= 2;
+    return static_cast<jint>(flags);
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeAssemble(
+    JNIEnv* env,
+    jclass /*clazz*/,
+    jint arch,
+    jlong address,
+    jstring codeJstr
+) {
+    if (!codeJstr) return nullptr;
+    const char* c = env->GetStringUTFChars(codeJstr, nullptr);
+    std::string code = c ? c : "";
+    if (c) env->ReleaseStringUTFChars(codeJstr, c);
+
+    auto res = mem_engine::AsmEngine::instance().assemble(
+        static_cast<mem_engine::AsmArch>(arch),
+        static_cast<uint64_t>(address),
+        code
+    );
+    if (!res.ok || res.bytes.empty()) return nullptr;
+    jbyteArray arr = env->NewByteArray(static_cast<jsize>(res.bytes.size()));
+    if (arr) {
+        env->SetByteArrayRegion(arr, 0, static_cast<jsize>(res.bytes.size()), reinterpret_cast<const jbyte*>(res.bytes.data()));
+    }
+    return arr;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeAssembleWithError(
+    JNIEnv* env,
+    jclass /*clazz*/,
+    jint arch,
+    jlong address,
+    jstring codeJstr
+) {
+    if (!codeJstr) return env->NewStringUTF("ERR:汇编代码为空");
+    const char* c = env->GetStringUTFChars(codeJstr, nullptr);
+    std::string code = c ? c : "";
+    if (c) env->ReleaseStringUTFChars(codeJstr, c);
+
+    auto res = mem_engine::AsmEngine::instance().assemble(
+        static_cast<mem_engine::AsmArch>(arch),
+        static_cast<uint64_t>(address),
+        code
+    );
+    if (!res.ok) {
+        std::string msg = "ERR:" + res.error;
+        return env->NewStringUTF(msg.c_str());
+    }
+    static const char* kHex = "0123456789ABCDEF";
+    std::string out = "OK:";
+    out.reserve(3 + res.bytes.size() * 2);
+    for (uint8_t b : res.bytes) {
+        out.push_back(kHex[(b >> 4) & 0xF]);
+        out.push_back(kHex[b & 0xF]);
+    }
+    return env->NewStringUTF(out.c_str());
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeDisassembleOne(
+    JNIEnv* env,
+    jclass /*clazz*/,
+    jint arch,
+    jlong address,
+    jbyteArray bytesJarr
+) {
+    if (!bytesJarr) return env->NewStringUTF("");
+    jsize len = env->GetArrayLength(bytesJarr);
+    if (len <= 0) return env->NewStringUTF("");
+    jbyte* ptr = env->GetByteArrayElements(bytesJarr, nullptr);
+    if (!ptr) return env->NewStringUTF("");
+    std::string text = mem_engine::AsmEngine::instance().disassembleOne(
+        static_cast<mem_engine::AsmArch>(arch),
+        static_cast<uint64_t>(address),
+        reinterpret_cast<const uint8_t*>(ptr),
+        static_cast<size_t>(len)
+    );
+    env->ReleaseByteArrayElements(bytesJarr, ptr, 0);
+    return env->NewStringUTF(text.c_str());
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeDisassembleBlock(
+    JNIEnv* env,
+    jclass /*clazz*/,
+    jint arch,
+    jlong baseAddress,
+    jbyteArray bytesJarr,
+    jint maxInsns
+) {
+    if (!bytesJarr) return env->NewStringUTF("");
+    jsize len = env->GetArrayLength(bytesJarr);
+    if (len <= 0) return env->NewStringUTF("");
+    jbyte* ptr = env->GetByteArrayElements(bytesJarr, nullptr);
+    if (!ptr) return env->NewStringUTF("");
+    auto insns = mem_engine::AsmEngine::instance().disassembleBlock(
+        static_cast<mem_engine::AsmArch>(arch),
+        static_cast<uint64_t>(baseAddress),
+        reinterpret_cast<const uint8_t*>(ptr),
+        static_cast<size_t>(len),
+        static_cast<size_t>(maxInsns > 0 ? maxInsns : 256)
+    );
+    env->ReleaseByteArrayElements(bytesJarr, ptr, 0);
+
+    std::ostringstream oss;
+    for (size_t i = 0; i < insns.size(); ++i) {
+        if (i > 0) oss << '\n';
+        oss << std::hex << insns[i].address << '|' << std::dec << insns[i].size << '|' << insns[i].text;
+    }
+    std::string out = oss.str();
+    return env->NewStringUTF(out.c_str());
+}
+
+// ============================================================================
+// ShadowHook + xDL Agent (Speedhack & Local Memory Page Allocation)
+// ============================================================================
+
+JNIEXPORT jboolean JNICALL
+Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeAgentSetSpeed(
+    JNIEnv* /*env*/,
+    jclass /*clazz*/,
+    jfloat rate
+) {
+    ggnext_agent_set_speed(static_cast<float>(rate));
+    return ggnext_agent_is_hook_active() != 0 ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jfloat JNICALL
+Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeAgentGetSpeed(
+    JNIEnv* /*env*/,
+    jclass /*clazz*/
+) {
+    return static_cast<jfloat>(ggnext_agent_get_speed());
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeAgentAllocPage(
+    JNIEnv* /*env*/,
+    jclass /*clazz*/,
+    jlong hintAddr,
+    jint size,
+    jint prot
+) {
+    return static_cast<jlong>(ggnext_agent_alloc_page(
+        static_cast<uint64_t>(hintAddr),
+        static_cast<size_t>(size > 0 ? size : 4096),
+        static_cast<int>(prot)
+    ));
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeVerifyXdlAndHook(
+    JNIEnv* /*env*/,
+    jclass /*clazz*/
+) {
+    void* libc = xdl_open("libc.so", XDL_DEFAULT);
+    if (!libc) return JNI_FALSE;
+    void* sym = xdl_sym(libc, "clock_gettime", nullptr);
+    xdl_close(libc);
+    return sym != nullptr ? JNI_TRUE : JNI_FALSE;
 }
 
 } // extern "C"

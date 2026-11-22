@@ -8,7 +8,10 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -40,6 +44,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -60,21 +67,28 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import com.littlecodesauce.ggnext.core.AppStrings
 import com.littlecodesauce.ggnext.ui.theme.LocalUiMetrics
 import com.littlecodesauce.ggnext.ui.theme.Rose
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.collectLatest
+import kotlin.math.roundToInt
 
 /**
  * 响应式多语言门面：
  * 统一委托给纯 Kotlin 字典 AppStrings，同时维护 Compose Snapshot State 保证整树实时热切换。
  */
 object I18n {
-    var currentLang by mutableStateOf(AppStrings.currentLang())
+    var currentLang by mutableStateOf(AppStrings.currentLang)
 
     init {
         AppStrings.onLangChanged = { lang ->
@@ -99,12 +113,14 @@ fun Modifier.clickableNoRipple(
     onClick = onClick
 )
 
-/** 等宽文字样式（去除多余字体上下内边距，保证输入框光标与文字基线 100% 对齐） */
+/** 等宽文字样式（去除多余字体上下内边距；若用户导入了自定义 TTF 字体则同步应用） */
 @Composable
 fun monoStyle(size: Int, color: Color = Rose.Text, weight: FontWeight = FontWeight.Normal): TextStyle {
     val scaled = (size * LocalUiMetrics.current.fontScale).sp
+    val customFamily = com.littlecodesauce.ggnext.ui.theme.LocalAppFontFamily.current
+    val effectiveFamily = if (customFamily != FontFamily.Default) customFamily else FontFamily.Monospace
     return TextStyle(
-        fontFamily = FontFamily.Monospace,
+        fontFamily = effectiveFamily,
         fontSize = scaled,
         lineHeight = scaled,
         color = color,
@@ -258,14 +274,50 @@ fun GgTextField(
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val view = androidx.compose.ui.platform.LocalView.current
+    val density = LocalDensity.current
     var wasFocused by remember { mutableStateOf(false) }
-    var showContextMenu by remember { mutableStateOf(false) }
+    var toolbarForceVisible by remember { mutableStateOf(false) }
+    var toolbarDismissed by remember { mutableStateOf(false) }
+    var toolbarSize by remember { mutableStateOf(IntSize.Zero) }
     var textLayoutResult by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+    var containerSize by remember { mutableStateOf(IntSize.Zero) }
+    // 指针光标状态：在同一光标位置连续触发两次时显示可拖动指针光标，再次点击同位置/点击水滴/输入文本/失焦时恢复普通光标
+    var pointerCursorActive by remember { mutableStateOf(false) }
+    var isDraggingHandle by remember { mutableStateOf(false) }
+    var isDraggingSelectionHandle by remember { mutableStateOf(false) }
+    var lastTapCursorIndex by remember { androidx.compose.runtime.mutableIntStateOf(-1) }
     val currentVal by androidx.compose.runtime.rememberUpdatedState(value)
     val currentOnValueChange by androidx.compose.runtime.rememberUpdatedState(onValueChange)
     val currentSuppress by androidx.compose.runtime.rememberUpdatedState(suppressSystemKeyboard)
+    val currentPointerActive by androidx.compose.runtime.rememberUpdatedState(pointerCursorActive)
+    val currentLayout by androidx.compose.runtime.rememberUpdatedState(textLayoutResult)
 
     var wakeNonce by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+
+    // 文本内容变化时自动恢复为普通光标，并重置工具栏隐藏状态
+    androidx.compose.runtime.LaunchedEffect(value.text) {
+        if (pointerCursorActive && !isDraggingHandle) {
+            pointerCursorActive = false
+        }
+        lastTapCursorIndex = -1
+        if (value.text.isEmpty()) {
+            toolbarForceVisible = false
+            toolbarDismissed = false
+        }
+    }
+
+    // 选区变化时自动刷新工具栏可见性（修复：移动光标或调整选区后快捷工具栏不再出现的问题）
+    androidx.compose.runtime.LaunchedEffect(value.selection) {
+        if (!value.selection.collapsed) {
+            pointerCursorActive = false
+            toolbarDismissed = false
+        } else {
+            toolbarDismissed = false
+            if (!isDraggingHandle) {
+                toolbarForceVisible = false
+            }
+        }
+    }
 
     fun wakeExternalKeyboardIfAllowed() {
         if (!currentSuppress) {
@@ -334,15 +386,24 @@ fun GgTextField(
                     .onFocusChanged { focusState ->
                         if (focusState.isFocused && !wasFocused) {
                             wasFocused = true
+                            toolbarDismissed = false
                             onFocus?.invoke()
                             wakeExternalKeyboardIfAllowed()
                         } else if (!focusState.isFocused) {
                             wasFocused = false
+                            pointerCursorActive = false
+                            isDraggingHandle = false
+                            isDraggingSelectionHandle = false
+                            toolbarForceVisible = false
+                            toolbarDismissed = false
+                            lastTapCursorIndex = -1
                         }
                     },
                 decorationBox = { innerTextField ->
                     Box(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onSizeChanged { containerSize = it },
                         contentAlignment = Alignment.CenterStart
                     ) {
                         if (value.text.isEmpty() && placeholder.isNotEmpty()) {
@@ -363,27 +424,30 @@ fun GgTextField(
                             modifier = Modifier
                                 .matchParentSize()
                                 .pointerInput(Unit) {
-                                    var lastTapTimeMs = 0L
-                                    var lastTapX = -1000f
                                     detectTapGestures(
                                         onLongPress = {
                                             focusRequester.requestFocus()
                                             onFocus?.invoke()
                                             wakeExternalKeyboardIfAllowed()
-                                            showContextMenu = true
+                                            pointerCursorActive = false
+                                            toolbarDismissed = false
+                                            toolbarForceVisible = true
                                         },
                                         onTap = { tapOffset ->
                                             focusRequester.requestFocus()
                                             onFocus?.invoke()
                                             wakeExternalKeyboardIfAllowed()
+                                            toolbarForceVisible = false
                                             val text = currentVal.text
                                             if (text.isEmpty()) {
+                                                pointerCursorActive = false
+                                                lastTapCursorIndex = -1
                                                 currentOnValueChange(
                                                     currentVal.copy(selection = androidx.compose.ui.text.TextRange.Zero)
                                                 )
                                                 return@detectTapGestures
                                             }
-                                            val layout = textLayoutResult
+                                            val layout = currentLayout
                                             val targetOffset = if (layout != null) {
                                                 val centerY = layout.size.height / 2f
                                                 layout.getOffsetForPosition(Offset(tapOffset.x, centerY))
@@ -391,22 +455,34 @@ fun GgTextField(
                                             } else {
                                                 text.length
                                             }
-                                            val now = android.os.SystemClock.uptimeMillis()
-                                            val hadSelection = !currentVal.selection.collapsed
-                                            val isRapidDoubleTap = !hadSelection &&
-                                                (now - lastTapTimeMs) in 40L..280L &&
-                                                kotlin.math.abs(tapOffset.x - lastTapX) < 28.dp.toPx()
+                                            val wasCollapsed = currentVal.selection.collapsed
+                                            val prevCursor = currentVal.selection.end.coerceIn(0, text.length)
+                                            val sameByOffset = wasCollapsed && targetOffset == prevCursor
+                                            val sameByProximity = if (wasCollapsed && layout != null) {
+                                                val rect = layout.getCursorRect(prevCursor)
+                                                val caretCenterX = (rect.left + rect.right) / 2f
+                                                kotlin.math.abs(tapOffset.x - caretCenterX) <= 14.dp.toPx()
+                                            } else false
+                                            val isSamePositionTap = wasFocused && (sameByOffset || sameByProximity) &&
+                                                (lastTapCursorIndex == prevCursor || currentPointerActive)
 
-                                            if (isRapidDoubleTap) {
-                                                lastTapTimeMs = 0L
-                                                currentOnValueChange(
-                                                    currentVal.copy(
-                                                        selection = androidx.compose.ui.text.TextRange(0, text.length)
+                                            if (currentPointerActive) {
+                                                // 指针光标已出现：再次点击即恢复为普通光标（若点在其他位置同时将光标移至新位置）
+                                                pointerCursorActive = false
+                                                lastTapCursorIndex = if (isSamePositionTap) -1 else targetOffset
+                                                if (!isSamePositionTap) {
+                                                    currentOnValueChange(
+                                                        currentVal.copy(
+                                                            selection = androidx.compose.ui.text.TextRange(targetOffset)
+                                                        )
                                                     )
-                                                )
+                                                }
+                                            } else if (isSamePositionTap) {
+                                                // 光标在同一位置连续被触发两次 -> 激活可拖动指针光标
+                                                pointerCursorActive = true
+                                                lastTapCursorIndex = prevCursor
                                             } else {
-                                                lastTapTimeMs = now
-                                                lastTapX = tapOffset.x
+                                                lastTapCursorIndex = targetOffset
                                                 currentOnValueChange(
                                                     currentVal.copy(
                                                         selection = androidx.compose.ui.text.TextRange(targetOffset)
@@ -417,82 +493,392 @@ fun GgTextField(
                                     )
                                 }
                         )
+
+                        val layout = textLayoutResult
+                        val boxW = containerSize.width.toFloat().coerceAtLeast(1f)
+                        val boxH = containerSize.height.toFloat().coerceAtLeast(1f)
+
+                        // 1. 单光标可拖动水滴指针（通过 Popup 渲染，彻底避免被输入框高度裁切并精准正对光标正下方）
+                        val showPointerHandle = pointerCursorActive &&
+                            wasFocused &&
+                            value.text.isNotEmpty() &&
+                            value.selection.collapsed
+                        if (showPointerHandle && layout != null) {
+                            val cursorIdx = value.selection.end.coerceIn(0, value.text.length)
+                            val cursorRect = layout.getCursorRect(cursorIdx)
+                            val caretCenterX = ((cursorRect.left + cursorRect.right) / 2f).coerceIn(0f, boxW)
+                            val textTopOffset = ((boxH - layout.size.height) / 2f).coerceAtLeast(0f)
+                            val caretBottomY = textTopOffset + cursorRect.bottom
+
+                            val touchBoxSize = 36.dp
+                            val touchBoxPx = with(density) { touchBoxSize.toPx() }
+                            val handleOffsetX = (caretCenterX - touchBoxPx / 2f).roundToInt()
+                            val handleOffsetY = (caretBottomY + with(density) { 1.5.dp.toPx() }).roundToInt()
+                            val latestHandleOffsetX by androidx.compose.runtime.rememberUpdatedState(handleOffsetX)
+
+                            val handleScale by animateFloatAsState(
+                                targetValue = if (isDraggingHandle) 1.18f else 1f,
+                                animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMedium),
+                                label = "ptrHandleScale"
+                            )
+
+                            Popup(
+                                alignment = Alignment.TopStart,
+                                offset = IntOffset(handleOffsetX, handleOffsetY),
+                                properties = PopupProperties(focusable = false, clippingEnabled = false)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(touchBoxSize)
+                                        .scale(handleScale)
+                                        .pointerInput(Unit) {
+                                            val slop = viewConfiguration.touchSlop
+                                            awaitEachGesture {
+                                                val down = awaitFirstDown(requireUnconsumed = false)
+                                                down.consume()
+                                                val activeLayout = currentLayout ?: return@awaitEachGesture
+                                                val startIdx = currentVal.selection.end.coerceIn(0, currentVal.text.length)
+                                                val startRect = activeLayout.getCursorRect(startIdx)
+                                                val startCaretX = (startRect.left + startRect.right) / 2f
+                                                val downAnchorX = latestHandleOffsetX + down.position.x
+                                                var moved = false
+                                                isDraggingHandle = true
+                                                while (true) {
+                                                    val ev = awaitPointerEvent()
+                                                    val ch = ev.changes.firstOrNull { it.id == down.id } ?: ev.changes.firstOrNull() ?: break
+                                                    if (!ch.pressed) break
+                                                    val curAnchorX = latestHandleOffsetX + ch.position.x
+                                                    val totalDx = curAnchorX - downAnchorX
+                                                    if (!moved && kotlin.math.abs(totalDx) > slop * 0.45f) {
+                                                        moved = true
+                                                    }
+                                                    if (moved) {
+                                                        val curLayout = currentLayout ?: activeLayout
+                                                        val curText = currentVal.text
+                                                        val targetX = (startCaretX + totalDx)
+                                                            .coerceIn(0f, curLayout.size.width.toFloat().coerceAtLeast(1f))
+                                                        val nextOffset = curLayout.getOffsetForPosition(
+                                                            Offset(targetX, curLayout.size.height / 2f)
+                                                        ).coerceIn(0, curText.length)
+                                                        if (nextOffset != currentVal.selection.end) {
+                                                            currentOnValueChange(
+                                                                currentVal.copy(
+                                                                    selection = androidx.compose.ui.text.TextRange(nextOffset)
+                                                                )
+                                                            )
+                                                        }
+                                                    }
+                                                    ch.consume()
+                                                }
+                                                isDraggingHandle = false
+                                                if (!moved) {
+                                                    pointerCursorActive = false
+                                                    lastTapCursorIndex = -1
+                                                }
+                                            }
+                                        },
+                                    contentAlignment = Alignment.TopCenter
+                                ) {
+                                    TeardropCursorHandle(
+                                        color = cursorColor,
+                                        dragging = isDraggingHandle
+                                    )
+                                }
+                            }
+                        }
+
+                        // 2. 选区起止水滴手柄：拖动调整选区范围后，顶部快捷工具栏会自动重新出现
+                        val hasSelection = !value.selection.collapsed && value.text.isNotEmpty()
+                        if (hasSelection && wasFocused && layout != null) {
+                            val selMin = value.selection.min.coerceIn(0, value.text.length)
+                            val selMax = value.selection.max.coerceIn(0, value.text.length)
+                            val textTopOffset = ((boxH - layout.size.height) / 2f).coerceAtLeast(0f)
+                            val touchBoxSize = 32.dp
+                            val touchBoxPx = with(density) { touchBoxSize.toPx() }
+                            val yGapPx = with(density) { 1.5.dp.toPx() }
+
+                            val startRect = layout.getCursorRect(selMin)
+                            val startCenterX = ((startRect.left + startRect.right) / 2f).coerceIn(0f, boxW)
+                            val startOffsetX = (startCenterX - touchBoxPx / 2f).roundToInt()
+                            val startOffsetY = (textTopOffset + startRect.bottom + yGapPx).roundToInt()
+                            val latestStartOffsetX by androidx.compose.runtime.rememberUpdatedState(startOffsetX)
+
+                            Popup(
+                                alignment = Alignment.TopStart,
+                                offset = IntOffset(startOffsetX, startOffsetY),
+                                properties = PopupProperties(focusable = false, clippingEnabled = false)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(touchBoxSize)
+                                        .pointerInput(Unit) {
+                                            awaitEachGesture {
+                                                val down = awaitFirstDown(requireUnconsumed = false)
+                                                down.consume()
+                                                val activeLayout = currentLayout ?: return@awaitEachGesture
+                                                val initialMin = currentVal.selection.min.coerceIn(0, currentVal.text.length)
+                                                val initialRect = activeLayout.getCursorRect(initialMin)
+                                                val startX = (initialRect.left + initialRect.right) / 2f
+                                                val downAnchorX = latestStartOffsetX + down.position.x
+                                                isDraggingSelectionHandle = true
+                                                while (true) {
+                                                    val ev = awaitPointerEvent()
+                                                    val ch = ev.changes.firstOrNull { it.id == down.id } ?: ev.changes.firstOrNull() ?: break
+                                                    if (!ch.pressed) break
+                                                    val curLayout = currentLayout ?: activeLayout
+                                                    val curText = currentVal.text
+                                                    val totalDx = (latestStartOffsetX + ch.position.x) - downAnchorX
+                                                    val targetX = (startX + totalDx).coerceIn(0f, curLayout.size.width.toFloat().coerceAtLeast(1f))
+                                                    val newIdx = curLayout.getOffsetForPosition(Offset(targetX, curLayout.size.height / 2f))
+                                                        .coerceIn(0, curText.length)
+                                                    val anchorEnd = currentVal.selection.max.coerceIn(0, curText.length)
+                                                    if (newIdx != currentVal.selection.min && newIdx != anchorEnd) {
+                                                        currentOnValueChange(
+                                                            currentVal.copy(
+                                                                selection = androidx.compose.ui.text.TextRange(
+                                                                    minOf(newIdx, anchorEnd),
+                                                                    maxOf(newIdx, anchorEnd)
+                                                                )
+                                                            )
+                                                        )
+                                                    }
+                                                    ch.consume()
+                                                }
+                                                isDraggingSelectionHandle = false
+                                                toolbarDismissed = false
+                                            }
+                                        },
+                                    contentAlignment = Alignment.TopCenter
+                                ) {
+                                    TeardropCursorHandle(color = cursorColor, dragging = false, compact = true)
+                                }
+                            }
+
+                            val endRect = layout.getCursorRect(selMax)
+                            val endCenterX = ((endRect.left + endRect.right) / 2f).coerceIn(0f, boxW)
+                            val endOffsetX = (endCenterX - touchBoxPx / 2f).roundToInt()
+                            val endOffsetY = (textTopOffset + endRect.bottom + yGapPx).roundToInt()
+                            val latestEndOffsetX by androidx.compose.runtime.rememberUpdatedState(endOffsetX)
+
+                            Popup(
+                                alignment = Alignment.TopStart,
+                                offset = IntOffset(endOffsetX, endOffsetY),
+                                properties = PopupProperties(focusable = false, clippingEnabled = false)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(touchBoxSize)
+                                        .pointerInput(Unit) {
+                                            awaitEachGesture {
+                                                val down = awaitFirstDown(requireUnconsumed = false)
+                                                down.consume()
+                                                val activeLayout = currentLayout ?: return@awaitEachGesture
+                                                val initialMax = currentVal.selection.max.coerceIn(0, currentVal.text.length)
+                                                val initialRect = activeLayout.getCursorRect(initialMax)
+                                                val startX = (initialRect.left + initialRect.right) / 2f
+                                                val downAnchorX = latestEndOffsetX + down.position.x
+                                                isDraggingSelectionHandle = true
+                                                while (true) {
+                                                    val ev = awaitPointerEvent()
+                                                    val ch = ev.changes.firstOrNull { it.id == down.id } ?: ev.changes.firstOrNull() ?: break
+                                                    if (!ch.pressed) break
+                                                    val curLayout = currentLayout ?: activeLayout
+                                                    val curText = currentVal.text
+                                                    val totalDx = (latestEndOffsetX + ch.position.x) - downAnchorX
+                                                    val targetX = (startX + totalDx).coerceIn(0f, curLayout.size.width.toFloat().coerceAtLeast(1f))
+                                                    val newIdx = curLayout.getOffsetForPosition(Offset(targetX, curLayout.size.height / 2f))
+                                                        .coerceIn(0, curText.length)
+                                                    val anchorStart = currentVal.selection.min.coerceIn(0, curText.length)
+                                                    if (newIdx != currentVal.selection.max && newIdx != anchorStart) {
+                                                        currentOnValueChange(
+                                                            currentVal.copy(
+                                                                selection = androidx.compose.ui.text.TextRange(
+                                                                    minOf(anchorStart, newIdx),
+                                                                    maxOf(anchorStart, newIdx)
+                                                                )
+                                                            )
+                                                        )
+                                                    }
+                                                    ch.consume()
+                                                }
+                                                isDraggingSelectionHandle = false
+                                                toolbarDismissed = false
+                                            }
+                                        },
+                                    contentAlignment = Alignment.TopCenter
+                                ) {
+                                    TeardropCursorHandle(color = cursorColor, dragging = false, compact = true)
+                                }
+                            }
+                        }
+
+                        // 3. 悬浮快捷操作工具栏（固定定位在输入框文本正上方；选区变更或拖动选区结束后自动重新显示）
+                        val showToolbar = wasFocused &&
+                            !isDraggingHandle &&
+                            !isDraggingSelectionHandle &&
+                            !toolbarDismissed &&
+                            (hasSelection || toolbarForceVisible)
+                        if (showToolbar) {
+                            val anchorCenterX = when {
+                                hasSelection && layout != null -> {
+                                    val r1 = layout.getCursorRect(value.selection.min.coerceIn(0, value.text.length))
+                                    val r2 = layout.getCursorRect(value.selection.max.coerceIn(0, value.text.length))
+                                    (((r1.left + r2.right) / 2f)).coerceIn(0f, boxW)
+                                }
+                                layout != null -> {
+                                    val r = layout.getCursorRect(value.selection.end.coerceIn(0, value.text.length))
+                                    ((r.left + r.right) / 2f).coerceIn(0f, boxW)
+                                }
+                                else -> boxW / 2f
+                            }
+                            val estW = toolbarSize.width.takeIf { it > 0 } ?: with(density) { 216.dp.roundToPx() }
+                            val estH = toolbarSize.height.takeIf { it > 0 } ?: with(density) { 34.dp.roundToPx() }
+                            val padGap = with(density) { 10.dp.roundToPx() }
+                            val minX = -with(density) { 12.dp.roundToPx() }
+                            val maxX = (boxW - estW + with(density) { 12.dp.roundToPx() }).roundToInt().coerceAtLeast(minX)
+                            val toolbarOffsetX = (anchorCenterX - estW / 2f).roundToInt().coerceIn(minX, maxX)
+                            val toolbarOffsetY = -(estH + padGap)
+
+                            Popup(
+                                alignment = Alignment.TopStart,
+                                offset = IntOffset(toolbarOffsetX, toolbarOffsetY),
+                                properties = PopupProperties(focusable = false, clippingEnabled = false)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .onSizeChanged { toolbarSize = it }
+                                        .shadow(8.dp, RoundedCornerShape(12.dp))
+                                        .background(Rose.CardHigh, RoundedCornerShape(12.dp))
+                                        .border(1.dp, Rose.Primary.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(1.dp)
+                                ) {
+                                    ContextToolbarBtn(tr("全选"), Rose.Text) {
+                                        val t = currentVal.text
+                                        if (t.isNotEmpty()) {
+                                            toolbarDismissed = false
+                                            currentOnValueChange(currentVal.copy(selection = androidx.compose.ui.text.TextRange(0, t.length)))
+                                        }
+                                    }
+                                    ContextToolbarDivider()
+                                    ContextToolbarBtn(tr("复制"), Rose.Text) {
+                                        toolbarForceVisible = false
+                                        toolbarDismissed = true
+                                        val sel = currentVal.selection
+                                        val textToCopy = if (!sel.collapsed) {
+                                            currentVal.text.substring(sel.min.coerceAtLeast(0), sel.max.coerceAtMost(currentVal.text.length))
+                                        } else {
+                                            currentVal.text
+                                        }
+                                        if (textToCopy.isNotEmpty()) {
+                                            clipboard.setText(androidx.compose.ui.text.AnnotatedString(textToCopy))
+                                            com.littlecodesauce.ggnext.core.Session.toast("已复制: $textToCopy")
+                                        }
+                                    }
+                                    ContextToolbarDivider()
+                                    ContextToolbarBtn(tr("粘贴"), Rose.Text) {
+                                        toolbarForceVisible = false
+                                        toolbarDismissed = true
+                                        val clipText = clipboard.getText()?.text.orEmpty()
+                                        if (clipText.isNotEmpty()) {
+                                            val sel = currentVal.selection
+                                            val start = sel.min.coerceIn(0, currentVal.text.length)
+                                            val end = sel.max.coerceIn(start, currentVal.text.length)
+                                            val nextText = currentVal.text.substring(0, start) + clipText + currentVal.text.substring(end)
+                                            val nextCursor = start + clipText.length
+                                            currentOnValueChange(
+                                                TextFieldValue(
+                                                    text = nextText,
+                                                    selection = androidx.compose.ui.text.TextRange(nextCursor)
+                                                )
+                                            )
+                                        }
+                                    }
+                                    ContextToolbarDivider()
+                                    ContextToolbarBtn(tr("剪切"), Rose.Text) {
+                                        toolbarForceVisible = false
+                                        toolbarDismissed = true
+                                        val sel = currentVal.selection
+                                        if (!sel.collapsed) {
+                                            val start = sel.min.coerceIn(0, currentVal.text.length)
+                                            val end = sel.max.coerceIn(start, currentVal.text.length)
+                                            val cutStr = currentVal.text.substring(start, end)
+                                            clipboard.setText(androidx.compose.ui.text.AnnotatedString(cutStr))
+                                            val nextText = currentVal.text.removeRange(start, end)
+                                            currentOnValueChange(TextFieldValue(text = nextText, selection = androidx.compose.ui.text.TextRange(start)))
+                                        } else if (currentVal.text.isNotEmpty()) {
+                                            clipboard.setText(androidx.compose.ui.text.AnnotatedString(currentVal.text))
+                                            currentOnValueChange(TextFieldValue(text = "", selection = androidx.compose.ui.text.TextRange(0)))
+                                        }
+                                    }
+                                    ContextToolbarDivider()
+                                    ContextToolbarBtn(tr("清空"), Rose.Red) {
+                                        toolbarForceVisible = false
+                                        toolbarDismissed = true
+                                        currentOnValueChange(TextFieldValue(text = "", selection = androidx.compose.ui.text.TextRange(0)))
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             )
         }
+    }
+}
 
-        // 界面问题 6：长按文本工具改为横向紧凑排列，单按钮体积适中不臃肿
-        androidx.compose.material3.DropdownMenu(
-            expanded = showContextMenu,
-            onDismissRequest = { showContextMenu = false },
-            modifier = Modifier.background(Rose.CardHigh)
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                ContextToolbarBtn(tr("全选"), Rose.Text) {
-                    showContextMenu = false
-                    val t = currentVal.text
-                    currentOnValueChange(currentVal.copy(selection = androidx.compose.ui.text.TextRange(0, t.length)))
-                }
-                ContextToolbarDivider()
-                ContextToolbarBtn(tr("复制"), Rose.Text) {
-                    showContextMenu = false
-                    val sel = currentVal.selection
-                    val textToCopy = if (!sel.collapsed) {
-                        currentVal.text.substring(sel.min.coerceAtLeast(0), sel.max.coerceAtMost(currentVal.text.length))
-                    } else {
-                        currentVal.text
-                    }
-                    if (textToCopy.isNotEmpty()) {
-                        clipboard.setText(androidx.compose.ui.text.AnnotatedString(textToCopy))
-                        com.littlecodesauce.ggnext.core.Session.toast("已复制: $textToCopy")
-                    }
-                }
-                ContextToolbarDivider()
-                ContextToolbarBtn(tr("粘贴"), Rose.Text) {
-                    showContextMenu = false
-                    val clipText = clipboard.getText()?.text.orEmpty()
-                    if (clipText.isNotEmpty()) {
-                        val sel = currentVal.selection
-                        val start = sel.min.coerceIn(0, currentVal.text.length)
-                        val end = sel.max.coerceIn(start, currentVal.text.length)
-                        val nextText = currentVal.text.substring(0, start) + clipText + currentVal.text.substring(end)
-                        val nextCursor = start + clipText.length
-                        currentOnValueChange(
-                            TextFieldValue(
-                                text = nextText,
-                                selection = androidx.compose.ui.text.TextRange(nextCursor)
-                            )
-                        )
-                    }
-                }
-                ContextToolbarDivider()
-                ContextToolbarBtn(tr("剪切"), Rose.Text) {
-                    showContextMenu = false
-                    val sel = currentVal.selection
-                    if (!sel.collapsed) {
-                        val start = sel.min.coerceIn(0, currentVal.text.length)
-                        val end = sel.max.coerceIn(start, currentVal.text.length)
-                        val cutStr = currentVal.text.substring(start, end)
-                        clipboard.setText(androidx.compose.ui.text.AnnotatedString(cutStr))
-                        val nextText = currentVal.text.removeRange(start, end)
-                        currentOnValueChange(TextFieldValue(text = nextText, selection = androidx.compose.ui.text.TextRange(start)))
-                    } else if (currentVal.text.isNotEmpty()) {
-                        clipboard.setText(androidx.compose.ui.text.AnnotatedString(currentVal.text))
-                        currentOnValueChange(TextFieldValue(text = "", selection = androidx.compose.ui.text.TextRange(0)))
-                    }
-                }
-                ContextToolbarDivider()
-                ContextToolbarBtn(tr("清空"), Rose.Red) {
-                    showContextMenu = false
-                    currentOnValueChange(TextFieldValue(text = "", selection = androidx.compose.ui.text.TextRange(0)))
-                }
-            }
+@Composable
+private fun TeardropCursorHandle(
+    color: Color,
+    dragging: Boolean,
+    compact: Boolean = false
+) {
+    val canvasSize = if (compact) 16.dp else 20.dp
+    Canvas(modifier = Modifier.size(canvasSize)) {
+        val cx = this.size.width / 2f
+        val tipY = 0.5.dp.toPx()
+        val bulbRadius = (if (compact) 4.4f else 5.2f).dp.toPx()
+        val bulbCenterY = tipY + bulbRadius * 1.46f
+
+        if (dragging) {
+            drawCircle(
+                color = color.copy(alpha = 0.24f),
+                radius = bulbRadius * 1.62f,
+                center = Offset(cx, bulbCenterY)
+            )
         }
+
+        val dropPath = Path().apply {
+            moveTo(cx, tipY)
+            cubicTo(
+                cx + bulbRadius * 0.92f, tipY + bulbRadius * 0.62f,
+                cx + bulbRadius, bulbCenterY - bulbRadius * 0.2f,
+                cx + bulbRadius, bulbCenterY
+            )
+            cubicTo(
+                cx + bulbRadius, bulbCenterY + bulbRadius * 0.95f,
+                cx + bulbRadius * 0.55f, bulbCenterY + bulbRadius,
+                cx, bulbCenterY + bulbRadius
+            )
+            cubicTo(
+                cx - bulbRadius * 0.55f, bulbCenterY + bulbRadius,
+                cx - bulbRadius, bulbCenterY + bulbRadius * 0.95f,
+                cx - bulbRadius, bulbCenterY
+            )
+            cubicTo(
+                cx - bulbRadius, bulbCenterY - bulbRadius * 0.2f,
+                cx - bulbRadius * 0.92f, tipY + bulbRadius * 0.62f,
+                cx, tipY
+            )
+            close()
+        }
+        drawPath(path = dropPath, color = color)
+        drawCircle(
+            color = Rose.OnPrimary.copy(alpha = 0.85f),
+            radius = (if (compact) 1.4f else 1.7f).dp.toPx(),
+            center = Offset(cx, bulbCenterY)
+        )
     }
 }
 

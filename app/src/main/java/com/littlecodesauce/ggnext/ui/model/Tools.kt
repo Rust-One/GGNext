@@ -4,6 +4,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.Undo
+import androidx.compose.material.icons.rounded.BugReport
+import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
@@ -50,6 +52,8 @@ enum class ToolId(val label: String) {
     SPEED("变速"),
     FILTER("过滤搜索结果"),
     DUMP("导出内存"),
+    BREAKPOINT("硬件断点"),
+    WRITE_ASM("写入汇编"),
     EXEC_SCRIPT("执行脚本"),
     MENU("工具栏顺序")
 }
@@ -84,6 +88,8 @@ fun toolIcon(id: ToolId): ImageVector = when (id) {
     ToolId.SPEED -> GgIcons.Speedometer
     ToolId.FILTER -> Icons.Rounded.FilterAlt
     ToolId.DUMP -> Icons.Rounded.Folder
+    ToolId.BREAKPOINT -> Icons.Rounded.BugReport
+    ToolId.WRITE_ASM -> Icons.Rounded.Code
     ToolId.EXEC_SCRIPT -> GgIcons.AngleBrackets
     ToolId.MENU -> GgIcons.MenuThreeLines
 }
@@ -142,6 +148,8 @@ val DEFAULT_TOOLS_MEMORY = listOf(
     ToolId.SELECT_ALL,
     ToolId.INVERT,
     ToolId.EDIT,
+    ToolId.WRITE_ASM,
+    ToolId.BREAKPOINT,
     ToolId.ALLOCATE,
     ToolId.REMOVE,
     ToolId.SEARCH,
@@ -169,7 +177,8 @@ fun isToolEnabled(id: ToolId, tab: NextTab, ui: Ui): Boolean {
         // 始终可用的全局功能
         ToolId.SEARCH, ToolId.FUZZY, ToolId.MASK, ToolId.POINTER,
         ToolId.OFFSET, ToolId.SPEED, ToolId.FILTER, ToolId.GOTO,
-        ToolId.ALLOCATE, ToolId.LOAD, ToolId.EXEC_SCRIPT, ToolId.MENU -> true
+        ToolId.ALLOCATE, ToolId.LOAD, ToolId.BREAKPOINT, ToolId.WRITE_ASM,
+        ToolId.EXEC_SCRIPT, ToolId.MENU -> true
 
         // 保存所选 / 选定为搜索结果 / 复制搜索 / 导出等
         ToolId.SAVE, ToolId.LOAD_RESULTS, ToolId.LOAD_CHANGED, ToolId.COPY_SEARCH,

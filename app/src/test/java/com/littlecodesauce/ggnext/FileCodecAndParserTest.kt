@@ -8,7 +8,9 @@ import com.littlecodesauce.ggnext.engine.RootMemDaemon
 import com.littlecodesauce.ggnext.model.MemoryItem
 import com.littlecodesauce.ggnext.model.ValueType
 import com.littlecodesauce.ggnext.ui.components.formatNavBadgeCount
+import com.littlecodesauce.ggnext.ui.theme.AppFontCache
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -113,10 +115,10 @@ class FileCodecAndParserTest {
     @Test
     fun appStrings_switchesBetweenChineseAndEnglish() {
         try {
-            AppStrings.setLanguage("0")
+            AppStrings.setLang("0")
             assertEquals("搜索", AppStrings.tr("搜索"))
 
-            AppStrings.setLanguage("1")
+            AppStrings.setLang("1")
             val enSearch = AppStrings.tr("搜索")
             assertNotEquals("搜索", enSearch)
             assertTrue(enSearch.equals("Search", ignoreCase = true))
@@ -129,7 +131,7 @@ class FileCodecAndParserTest {
                 assertNotEquals("请输入要搜索的值", e.message)
             }
         } finally {
-            AppStrings.setLanguage("0")
+            AppStrings.setLang("0")
         }
     }
 
@@ -179,5 +181,15 @@ class FileCodecAndParserTest {
         } finally {
             dir.deleteRecursively()
         }
+    }
+
+    @Test
+    fun appFontCache_validatesFontMagicHeaders() {
+        assertTrue(AppFontCache.isValidFontHeader(byteArrayOf(0x00, 0x01, 0x00, 0x00)))
+        assertTrue(AppFontCache.isValidFontHeader("true".toByteArray()))
+        assertTrue(AppFontCache.isValidFontHeader("OTTO".toByteArray()))
+        assertTrue(AppFontCache.isValidFontHeader("ttcf".toByteArray()))
+        assertFalse(AppFontCache.isValidFontHeader("PNG!".toByteArray()))
+        assertFalse(AppFontCache.isValidFontHeader(byteArrayOf(0x00, 0x01)))
     }
 }

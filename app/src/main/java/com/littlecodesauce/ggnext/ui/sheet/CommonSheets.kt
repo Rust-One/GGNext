@@ -107,10 +107,25 @@ import com.littlecodesauce.ggnext.ui.components.tr
 import com.littlecodesauce.ggnext.ui.components.valueText
 import com.littlecodesauce.ggnext.ui.model.ToolId
 import com.littlecodesauce.ggnext.ui.model.toolIcon
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.WarningAmber
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.platform.LocalContext
+import com.littlecodesauce.ggnext.engine.Shell
 import com.littlecodesauce.ggnext.ui.theme.Motion
 import com.littlecodesauce.ggnext.ui.theme.Rose
 import com.littlecodesauce.ggnext.ui.theme.typeColor
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 // ============================================================
 // 单地址编辑 vs 批量修改功能页
@@ -206,7 +221,29 @@ fun EditSheet(ui: Ui) {
             "修改选中 ${targets.size}"
         },
         onDismiss = Session::closeSheet,
-        maxBodyHeight = 760
+        maxBodyHeight = 760,
+        showSideKeyboard = showBuiltInKeyboard && keyboardTarget != 0,
+        sideKeyboard = {
+            val activeKeyboardTf = when (keyboardTarget) {
+                2 -> stepTf
+                3 -> freezeFromTf
+                4 -> freezeToTf
+                else -> valueTf
+            }
+            BuiltInKeyboard(
+                value = activeKeyboardTf,
+                onValueChange = { next ->
+                    when (keyboardTarget) {
+                        2 -> stepTf = next
+                        3 -> freezeFromTf = next
+                        4 -> freezeToTf = next
+                        else -> valueTf = next
+                    }
+                },
+                onHistory = { Session.openSheet(Sheet.HISTORY) },
+                onDismiss = { showBuiltInKeyboard = false }
+            )
+        }
     ) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             Text(
@@ -285,6 +322,55 @@ fun EditSheet(ui: Ui) {
                     contentAlignment = Alignment.Center
                 ) {
                     Text(tr(if (showBuiltInKeyboard && keyboardTarget == 1) "收起" else "键盘"), color = Rose.Text, fontSize = fsp(13f))
+                }
+            }
+
+            // 原版 GG 内联汇编实时预览（支持 ~A8 / ~A / ~T / ~X86 / ~X64 前缀）
+            val inlineAsmParsed = remember(valueTf.text) {
+                com.littlecodesauce.ggnext.engine.AsmEngineManager.parseGgAsmPrefix(valueTf.text)
+            }
+            if (inlineAsmParsed != null) {
+                val (asmArch, asmBody) = inlineAsmParsed
+                var asmHex by remember { mutableStateOf("") }
+                var asmErr by remember { mutableStateOf("") }
+                LaunchedEffect(asmArch, asmBody, firstItem.address) {
+                    if (asmBody.isBlank()) {
+                        asmHex = ""
+                        asmErr = "请输入 ${asmArch.shortCode} 指令，例如 ${asmArch.ggPrefix} NOP"
+                    } else {
+                        val res = withContext(Dispatchers.IO) {
+                            com.littlecodesauce.ggnext.engine.AsmEngineManager.assemble(asmArch, firstItem.address, asmBody)
+                        }
+                        if (res.isSuccess) {
+                            val b = res.getOrThrow()
+                            asmHex = "${com.littlecodesauce.ggnext.engine.AsmEngineManager.bytesToSpacedHex(b)} (${b.size}B)"
+                            asmErr = ""
+                        } else {
+                            asmHex = ""
+                            asmErr = res.exceptionOrNull()?.message ?: "汇编失败"
+                        }
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(
+                            if (asmErr.isEmpty()) Rose.Green.copy(alpha = 0.12f) else Rose.Red.copy(alpha = 0.12f),
+                            RoundedCornerShape(8.dp)
+                        )
+                        .border(
+                            0.8.dp,
+                            if (asmErr.isEmpty()) Rose.Green.copy(alpha = 0.45f) else Rose.Red.copy(alpha = 0.45f),
+                            RoundedCornerShape(8.dp)
+                        )
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = if (asmErr.isEmpty()) "${asmArch.shortCode} 机器码：$asmHex" else asmErr,
+                        style = monoStyle(11.5f.toInt(), if (asmErr.isEmpty()) Rose.Green else Rose.Red),
+                        maxLines = 2
+                    )
                 }
             }
 
@@ -591,30 +677,6 @@ fun EditSheet(ui: Ui) {
                     )
                 }
             }
-
-            AnimatedVisibility(showBuiltInKeyboard && keyboardTarget != 0, enter = expandEnter(), exit = expandExit()) {
-                val activeKeyboardTf = when (keyboardTarget) {
-                    2 -> stepTf
-                    3 -> freezeFromTf
-                    4 -> freezeToTf
-                    else -> valueTf
-                }
-                Column(Modifier.padding(top = 10.dp)) {
-                    BuiltInKeyboard(
-                        value = activeKeyboardTf,
-                        onValueChange = { next ->
-                            when (keyboardTarget) {
-                                2 -> stepTf = next
-                                3 -> freezeFromTf = next
-                                4 -> freezeToTf = next
-                                else -> valueTf = next
-                            }
-                        },
-                        onHistory = { Session.openSheet(Sheet.HISTORY) },
-                        onDismiss = { showBuiltInKeyboard = false }
-                    )
-                }
-            }
         }
     }
 }
@@ -714,6 +776,12 @@ fun ContextSheet(ui: Ui) {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             MenuAction(toolIcon(ToolId.EDIT), "编辑此地址数值 ($value)") {
                 Session.openSheet(Sheet.EDITOR, item, singleEdit = true)
+            }
+            MenuAction(toolIcon(ToolId.BREAKPOINT), "设置硬件断点") {
+                Session.openSheet(Sheet.BREAKPOINT, item)
+            }
+            MenuAction(toolIcon(ToolId.WRITE_ASM), "写入汇编指令") {
+                Session.openSheet(Sheet.WRITE_ASM, item)
             }
             MenuAction(toolIcon(ToolId.OFFSET), "偏移量计算器") {
                 Session.openSheet(Sheet.OFFSET, item)
@@ -855,7 +923,16 @@ fun AddressEditSheet(ui: Ui) {
     NextSheetCard(
         title = if (isBatchTypeMode) "批量更改类型（已选 ${checked.size} 项）" else "更改地址 / 类型",
         subtitle = if (isBatchTypeMode) "多选状态下可一键统一变更所有已选地址的数据类型" else null,
-        onDismiss = Session::popSheet
+        onDismiss = Session::popSheet,
+        showSideKeyboard = !isBatchTypeMode && showKeyboard,
+        sideKeyboard = {
+            BuiltInKeyboard(
+                value = addr,
+                onValueChange = { addr = it },
+                onHistory = { Session.openSheet(Sheet.HISTORY) },
+                onDismiss = { showKeyboard = false }
+            )
+        }
     ) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             if (!isBatchTypeMode) {
@@ -889,17 +966,6 @@ fun AddressEditSheet(ui: Ui) {
             }
             Spacer(Modifier.height(10.dp))
             if (!isBatchTypeMode) {
-                AnimatedVisibility(showKeyboard, enter = expandEnter(), exit = expandExit()) {
-                    Column {
-                        BuiltInKeyboard(
-                            value = addr,
-                            onValueChange = { addr = it },
-                            onHistory = { Session.openSheet(Sheet.HISTORY) },
-                            onDismiss = { showKeyboard = false }
-                        )
-                        Spacer(Modifier.height(10.dp))
-                    }
-                }
                 RoseButton("确定", Modifier.fillMaxWidth(), filled = true) {
                     val parsedAddr = addr.text.trim().removePrefix("0x").removeSuffix("h").toULongOrNull(16)?.toLong()
                     if (item != null && parsedAddr != null && parsedAddr != item.address) {
@@ -1064,7 +1130,18 @@ fun OffsetSheet(ui: Ui) {
         title = "偏移量计算器",
         subtitle = "输入偏移实时计算目标地址并展示各种类型的内存数值",
         onDismiss = Session::closeSheet,
-        maxBodyHeight = 760
+        maxBodyHeight = 760,
+        showSideKeyboard = showKeyboard,
+        sideKeyboard = {
+            BuiltInKeyboard(
+                value = if (focusField == 0) baseHex else offTf,
+                onValueChange = { next ->
+                    if (focusField == 0) baseHex = next else offTf = next
+                },
+                onHistory = { Session.openSheet(Sheet.HISTORY) },
+                onDismiss = { showKeyboard = false }
+            )
+        }
     ) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             // 地址: 可点击编辑基址
@@ -1205,19 +1282,6 @@ fun OffsetSheet(ui: Ui) {
                 RoseButton("转到", Modifier.weight(1.2f), filled = true) {
                     Session.goto(targetAddr, recordHistory = true, highlightTarget = true)
                     Session.closeSheet()
-                }
-            }
-
-            AnimatedVisibility(showKeyboard, enter = expandEnter(), exit = expandExit()) {
-                Column(Modifier.padding(top = 10.dp)) {
-                    BuiltInKeyboard(
-                        value = if (focusField == 0) baseHex else offTf,
-                        onValueChange = { next ->
-                            if (focusField == 0) baseHex = next else offTf = next
-                        },
-                        onHistory = { Session.openSheet(Sheet.HISTORY) },
-                        onDismiss = { showKeyboard = false }
-                    )
                 }
             }
         }
@@ -1606,7 +1670,16 @@ fun GotoSheet() {
         title = "转到地址",
         subtitle = "输入十六进制内存地址定位并高亮目标地址",
         onDismiss = Session::closeSheet,
-        maxBodyHeight = 720
+        maxBodyHeight = 720,
+        showSideKeyboard = showKeyboard,
+        sideKeyboard = {
+            BuiltInKeyboard(
+                value = tf,
+                onValueChange = { tf = it },
+                onHistory = { showGotoHistory = !showGotoHistory },
+                onDismiss = { showKeyboard = false }
+            )
+        }
     ) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             // 输入行：输入地址 + 收起按钮 + 模块列表按钮 ☰
@@ -1747,17 +1820,6 @@ fun GotoSheet() {
                         Session.recordGotoHistory(tf.text)
                         Session.goto(v, recordHistory = true, highlightTarget = true)
                     }
-                }
-            }
-
-            AnimatedVisibility(showKeyboard, enter = expandEnter(), exit = expandExit()) {
-                Column(Modifier.padding(top = 10.dp)) {
-                    BuiltInKeyboard(
-                        value = tf,
-                        onValueChange = { tf = it },
-                        onHistory = { showGotoHistory = !showGotoHistory },
-                        onDismiss = { showKeyboard = false }
-                    )
                 }
             }
         }
@@ -1927,10 +1989,16 @@ fun ModuleListSheet() {
 // ============================================================
 @Composable
 fun ScriptSheet(ui: Ui) {
-    var scriptTf by remember(ui.scriptPath) {
-        mutableStateOf(TextFieldValue(ui.scriptPath, TextRange(0, ui.scriptPath.length)))
+    var scriptTf by remember {
+        mutableStateOf(TextFieldValue(ui.scriptPath, TextRange(ui.scriptPath.length)))
+    }
+    LaunchedEffect(ui.scriptPath) {
+        if (ui.scriptPath != scriptTf.text) {
+            scriptTf = TextFieldValue(ui.scriptPath, TextRange(ui.scriptPath.length))
+        }
     }
     var showRecent by remember { mutableStateOf(false) }
+    var showPathSuggest by remember { mutableStateOf(false) }
 
     NextSheetCard(
         title = "执行脚本",
@@ -1954,6 +2022,10 @@ fun ScriptSheet(ui: Ui) {
                     onValueChange = {
                         scriptTf = it
                         Session.setScriptPath(it.text)
+                        showPathSuggest = it.text.startsWith("/")
+                    },
+                    onFocus = {
+                        showPathSuggest = scriptTf.text.startsWith("/")
                     },
                     modifier = Modifier.fillMaxWidth().height(40.dp),
                     textStyle = monoStyle(14, Rose.Text),
@@ -1962,6 +2034,18 @@ fun ScriptSheet(ui: Ui) {
                     placeholder = "/sdcard/Download/script.lua"
                 )
             }
+
+            PathAutocompleteDropdown(
+                path = scriptTf.text,
+                hasRoot = ui.hasRootPermission,
+                directoriesOnly = false,
+                visible = showPathSuggest,
+                onSelect = { completed, isDir ->
+                    scriptTf = TextFieldValue(completed, TextRange(completed.length))
+                    Session.setScriptPath(completed)
+                    showPathSuggest = isDir
+                }
+            )
 
             Spacer(Modifier.height(8.dp))
             Box(
@@ -2239,24 +2323,358 @@ private data class BrowserEntry(
     val fullPath: String,
     val isDirectory: Boolean,
     val sizeBytes: Long = 0L,
-    val childCount: Int = 0
+    val isParentLink: Boolean = false
 ) {
     val ext: String
         get() = if (isDirectory) "" else name.substringAfterLast('.', "").lowercase()
 }
 
+/** 目录异步缓存（避免重复遍历与主线程卡顿，同时供文件浏览器与同级路径自动补全共享） */
+private object DirListCache {
+    private const val TTL_MS = 8_000L
+    private val map = ConcurrentHashMap<String, Pair<Long, List<BrowserEntry>>>()
+
+    fun get(dir: String): List<BrowserEntry>? {
+        val hit = map[dir] ?: return null
+        return if (System.currentTimeMillis() - hit.first <= TTL_MS) hit.second else null
+    }
+
+    fun put(dir: String, entries: List<BrowserEntry>) {
+        if (map.size > 64) map.clear()
+        map[dir] = System.currentTimeMillis() to entries
+    }
+
+    fun invalidate(dir: String? = null) {
+        if (dir == null) map.clear() else map.remove(dir)
+    }
+}
+
+private val LS_ISO_REGEX = Regex(
+    "^([dlcbps-])\\S+\\s+\\d+\\s+\\S+\\s+\\S+\\s+(\\d+)\\s+\\d{4}-\\d{2}-\\d{2}\\s+\\d{2}:\\d{2}(?::\\d{2})?\\s+(.+)$"
+)
+private val LS_ALT_REGEX = Regex(
+    "^([dlcbps-])\\S+\\s+\\d+\\s+\\S+\\s+\\S+\\s+(\\d+)\\s+\\S+\\s+\\S+\\s+\\S+\\s+(.+)$"
+)
+private val KNOWN_DIR_SYMLINKS = setOf("sdcard", "storage", "vendor", "bin", "etc", "lib", "lib64", "odm", "product")
+
+private fun needsAllFilesStorageAccess(): Boolean {
+    return Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()
+}
+
+private fun joinDirChild(parentDir: String, childName: String): String {
+    return if (parentDir == "/") "/$childName" else "$parentDir/$childName"
+}
+
+/**
+ * 仅列出指定目录的直接子项（绝不递归扫描子文件夹），必须在 Dispatchers.IO 调用。
+ * Android 11+ 未授予 MANAGE_EXTERNAL_STORAGE 时，Scoped Storage 会隐藏非媒体文件（如 .lua/.txt/.ttf）；
+ * 若具备 Root 权限，则通过单次 `ls -lnA` 补全全部目录与文件，保证性能与完整性。
+ */
+private fun listDirectoryDirect(
+    dirPath: String,
+    hasRoot: Boolean,
+    forceRefresh: Boolean = false
+): List<BrowserEntry> {
+    val cleanDir = dirPath.trimEnd('/').ifEmpty { "/" }
+    if (!forceRefresh) {
+        DirListCache.get(cleanDir)?.let { return it }
+    }
+
+    val out = LinkedHashMap<String, BrowserEntry>()
+
+    fun addFromJavaDir(target: File, baseDisplayDir: String) {
+        val list = runCatching { target.listFiles() }.getOrNull() ?: return
+        for (f in list) {
+            val name = f.name
+            if (name == "." || name == "..") continue
+            val isDir = f.isDirectory
+            out[name] = BrowserEntry(
+                name = name,
+                fullPath = joinDirChild(baseDisplayDir, name),
+                isDirectory = isDir,
+                sizeBytes = if (isDir) 0L else runCatching { f.length() }.getOrDefault(0L)
+            )
+        }
+    }
+
+    // 1. 优先尝试原生 File API（毫秒级，零子进程开销）
+    runCatching {
+        val dirFile = File(cleanDir)
+        if (dirFile.exists() && dirFile.isDirectory) {
+            addFromJavaDir(dirFile, cleanDir)
+        }
+    }
+
+    // 2. 若 /sdcard 读取为空，回退读取 /storage/emulated/0
+    if (out.isEmpty() && cleanDir.startsWith("/sdcard")) {
+        runCatching {
+            val emulatedPath = cleanDir.replaceFirst("/sdcard", "/storage/emulated/0")
+            val emuFile = File(emulatedPath)
+            if (emuFile.exists() && emuFile.isDirectory) {
+                addFromJavaDir(emuFile, cleanDir)
+            }
+        }
+    }
+
+    // 3. 若处于 Scoped Storage 受限或目录无权读取，且具备 Root，使用单次 su ls 补全全部文件与文件夹
+    val shouldUseRoot = hasRoot && (out.isEmpty() || needsAllFilesStorageAccess() || cleanDir == "/" || cleanDir.startsWith("/data"))
+    if (shouldUseRoot) {
+        val shellTarget = if (cleanDir == "/sdcard") "/storage/emulated/0"
+        else if (cleanDir.startsWith("/sdcard/")) cleanDir.replaceFirst("/sdcard/", "/storage/emulated/0/")
+        else cleanDir
+        val escaped = shellTarget.replace("'", "'\\''")
+        val res = Shell.runAs("ls -lnA '$escaped' 2>/dev/null", asRoot = true)
+        var parsedCount = 0
+        if (res.exitCode == 0 && res.out.isNotEmpty()) {
+            for (rawLine in res.out) {
+                val line = rawLine.trimEnd('\r')
+                if (line.length < 10 || line.startsWith("total ")) continue
+                val m = LS_ISO_REGEX.matchEntire(line) ?: LS_ALT_REGEX.matchEntire(line) ?: continue
+                val typeChar = m.groupValues[1][0]
+                val sizeVal = m.groupValues[2].toLongOrNull() ?: 0L
+                val rawName = m.groupValues[3]
+                val isSymlink = typeChar == 'l'
+                val name = if (isSymlink && rawName.contains(" -> ")) {
+                    rawName.substringBefore(" -> ")
+                } else {
+                    rawName
+                }
+                if (name.isEmpty() || name == "." || name == "..") continue
+                val fullPath = joinDirChild(cleanDir, name)
+                val isDir = when (typeChar) {
+                    'd' -> true
+                    'l' -> {
+                        val target = rawName.substringAfter(" -> ", "")
+                        runCatching { File(fullPath).isDirectory }.getOrDefault(false) ||
+                            target.endsWith("/") ||
+                            name in KNOWN_DIR_SYMLINKS
+                    }
+                    else -> false
+                }
+                val existing = out[name]
+                if (existing == null || (!existing.isDirectory && sizeVal > 0L && existing.sizeBytes == 0L)) {
+                    out[name] = BrowserEntry(
+                        name = name,
+                        fullPath = fullPath,
+                        isDirectory = isDir,
+                        sizeBytes = if (isDir) 0L else sizeVal
+                    )
+                }
+                parsedCount++
+            }
+        }
+        // 兜底：若某些设备 ls -lnA 输出格式异常导致未解析，回退到最简洁的 ls -1pA
+        if (parsedCount == 0 && out.isEmpty()) {
+            val simpleRes = Shell.runAs("ls -1pA '$escaped' 2>/dev/null", asRoot = true)
+            if (simpleRes.exitCode == 0) {
+                for (rawLine in simpleRes.out) {
+                    val trimmed = rawLine.trimEnd('\r')
+                    if (trimmed.isEmpty() || trimmed == "./" || trimmed == "../") continue
+                    val isDir = trimmed.endsWith("/")
+                    val name = if (isDir) trimmed.dropLast(1) else trimmed
+                    if (name.isEmpty() || name == "." || name == "..") continue
+                    val fullPath = joinDirChild(cleanDir, name)
+                    out[name] = BrowserEntry(
+                        name = name,
+                        fullPath = fullPath,
+                        isDirectory = isDir || (cleanDir == "/" && name in KNOWN_DIR_SYMLINKS),
+                        sizeBytes = if (isDir) 0L else runCatching { File(fullPath).length() }.getOrDefault(0L)
+                    )
+                }
+            }
+        }
+    }
+
+    // 4. 根目录在非 Root / SELinux 受限场景下提供标准挂载点入口
+    if (out.isEmpty() && cleanDir == "/") {
+        listOf("/sdcard", "/storage", "/data", "/system").forEach { stdPath ->
+            val name = stdPath.removePrefix("/")
+            out[name] = BrowserEntry(
+                name = name,
+                fullPath = stdPath,
+                isDirectory = true,
+                sizeBytes = 0L
+            )
+        }
+    }
+
+    val sorted = out.values.sortedWith(
+        compareByDescending<BrowserEntry> { it.isDirectory }.thenBy { it.name.lowercase() }
+    )
+    DirListCache.put(cleanDir, sorted)
+    return sorted
+}
+
+/**
+ * 严格同级目录路径自动补全下拉列表：
+ * - 例如输入 `/sd` -> 仅匹配 `/` 下的直接子项 `/sdcard`，绝不越级展开到 `/sdcard/a/b/...`
+ * - 例如输入 `/storage/emulated/0/` -> 展示 `/storage/emulated/0` 的直接子文件与子文件夹（格式 `.../<name>`）
+ */
+@Composable
+private fun PathAutocompleteDropdown(
+    path: String,
+    hasRoot: Boolean,
+    directoriesOnly: Boolean,
+    visible: Boolean,
+    onSelect: (completedPath: String, isDirectory: Boolean) -> Unit
+) {
+    if (!visible || !path.startsWith("/")) return
+
+    val lastSlash = path.lastIndexOf('/')
+    val parentDir = if (lastSlash <= 0) "/" else path.substring(0, lastSlash)
+    val prefix = path.substring(lastSlash + 1)
+
+    var parentEntries by remember(parentDir) {
+        mutableStateOf(DirListCache.get(parentDir) ?: emptyList())
+    }
+
+    LaunchedEffect(parentDir, hasRoot, visible) {
+        if (!visible) return@LaunchedEffect
+        val cached = DirListCache.get(parentDir)
+        if (cached != null) {
+            parentEntries = cached
+        } else {
+            delay(70)
+            val loaded = withContext(Dispatchers.IO) {
+                listDirectoryDirect(parentDir, hasRoot = hasRoot, forceRefresh = false)
+            }
+            parentEntries = loaded
+        }
+    }
+
+    val suggestions = remember(parentEntries, prefix, directoriesOnly, path) {
+        parentEntries.asSequence()
+            .filter { entry ->
+                if (directoriesOnly && !entry.isDirectory) return@filter false
+                if (prefix.isNotEmpty() && !entry.name.startsWith(prefix, ignoreCase = true)) return@filter false
+                // 已完整选中单个文件后收起匹配项
+                if (!entry.isDirectory && entry.fullPath.equals(path, ignoreCase = false)) return@filter false
+                true
+            }
+            .sortedBy { it.name.lowercase() }
+            .take(80)
+            .toList()
+    }
+
+    if (suggestions.isEmpty()) return
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Rose.CardHigh)
+            .border(1.dp, Rose.Divider, RoundedCornerShape(10.dp))
+            .heightIn(max = 220.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
+        suggestions.forEach { entry ->
+            val displayText = if (parentDir == "/") {
+                "/${entry.name}"
+            } else {
+                ".../${entry.name}"
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        val completed = if (entry.isDirectory) {
+                            if (directoriesOnly) entry.fullPath else "${entry.fullPath}/"
+                        } else {
+                            entry.fullPath
+                        }
+                        onSelect(completed, entry.isDirectory)
+                    }
+                    .padding(horizontal = 14.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = if (entry.isDirectory) Icons.Rounded.Folder else GgIcons.FileTxt,
+                    contentDescription = null,
+                    tint = if (entry.isDirectory) Rose.Yellow else Rose.TextSecond,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = displayText,
+                    style = monoStyle(13, Rose.Text),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                if (!entry.isDirectory) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = formatFileSize(entry.sizeBytes),
+                        style = monoStyle(10, Rose.TextDim)
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun FileBrowserSheet(ui: Ui) {
+    val ctx = LocalContext.current
     val cfg = ui.fileBrowser
     var currentDir by remember(cfg.currentDir) {
         mutableStateOf(cfg.currentDir.trimEnd('/').ifEmpty { "/sdcard" })
     }
     var searchQuery by remember { mutableStateOf(TextFieldValue("")) }
-    var extFilter by remember { mutableStateOf("ALL") }
-    var customFolders by remember { mutableStateOf(listOf<String>()) }
+    var showHidden by remember { mutableStateOf(false) }
+    var refreshNonce by remember { mutableIntStateOf(0) }
 
-    val entries = remember(currentDir, searchQuery.text, extFilter, customFolders) {
-        loadBrowserEntries(currentDir, searchQuery.text, extFilter, customFolders)
+    var rawEntries by remember(currentDir) {
+        mutableStateOf(DirListCache.get(currentDir) ?: emptyList())
+    }
+    var isLoading by remember(currentDir) {
+        mutableStateOf(DirListCache.get(currentDir) == null)
+    }
+
+    LaunchedEffect(currentDir, ui.hasRootPermission, refreshNonce) {
+        val force = refreshNonce > 0
+        if (!force) {
+            val cached = DirListCache.get(currentDir)
+            if (cached != null) {
+                rawEntries = cached
+                isLoading = false
+                return@LaunchedEffect
+            }
+        }
+        isLoading = true
+        val loaded = withContext(Dispatchers.IO) {
+            listDirectoryDirect(currentDir, hasRoot = ui.hasRootPermission, forceRefresh = force)
+        }
+        rawEntries = loaded
+        isLoading = false
+    }
+
+    val displayEntries = remember(rawEntries, currentDir, searchQuery.text, showHidden, cfg.selectDirectory) {
+        val q = searchQuery.text.trim()
+        val showDots = showHidden || q.startsWith(".")
+        val filtered = rawEntries.filter { e ->
+            if (!showDots && e.name.startsWith(".")) return@filter false
+            if (cfg.selectDirectory && !e.isDirectory) return@filter false
+            q.isEmpty() || e.name.contains(q, ignoreCase = true)
+        }
+        if (currentDir != "/" && q.isEmpty()) {
+            val parentPath = currentDir.substringBeforeLast('/', "").ifEmpty { "/" }
+            listOf(
+                BrowserEntry(
+                    name = "..",
+                    fullPath = parentPath,
+                    isDirectory = true,
+                    isParentLink = true
+                )
+            ) + filtered
+        } else {
+            filtered
+        }
+    }
+
+    val missingAllFilesPerm = remember(refreshNonce, ui.hasRootPermission) {
+        !ui.hasRootPermission && needsAllFilesStorageAccess()
     }
 
     val pathSegments = remember(currentDir) {
@@ -2271,13 +2689,15 @@ fun FileBrowserSheet(ui: Ui) {
     }
 
     NextSheetCard(
-        title = if (cfg.selectDirectory) "浏览并选择文件夹" else "文件浏览器",
+        title = when {
+            cfg.target == FileBrowserTarget.FONT -> "选择 TTF 字体文件"
+            cfg.selectDirectory -> "浏览并选择文件夹"
+            else -> "文件浏览器"
+        },
         onDismiss = { Session.openSheet(cfg.returnSheet) },
         maxBodyHeight = 760
     ) {
         Column {
-
-
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -2338,84 +2758,146 @@ fun FileBrowserSheet(ui: Ui) {
                         placeholder = "搜索文件名或后缀…"
                     )
                 }
+                Box(
+                    Modifier
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (showHidden) Rose.ChipSelected else Rose.CardHigh)
+                        .border(1.dp, if (showHidden) Rose.Primary.copy(alpha = 0.5f) else Rose.Divider, RoundedCornerShape(8.dp))
+                        .clickableWithTooltip(tooltip = "显示隐藏文件") { showHidden = !showHidden }
+                        .padding(horizontal = 9.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = ".*",
+                        style = monoStyle(12, if (showHidden) Rose.Primary else Rose.TextSecond, FontWeight.SemiBold)
+                    )
+                }
+                Box(
+                    Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Rose.CardHigh)
+                        .border(1.dp, Rose.Divider, RoundedCornerShape(8.dp))
+                        .clickableWithTooltip(tooltip = "刷新目录") {
+                            DirListCache.invalidate(currentDir)
+                            refreshNonce++
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Rounded.Refresh, contentDescription = "刷新", tint = Rose.TextSecond, modifier = Modifier.size(17.dp))
+                }
             }
 
-
-
-            Spacer(Modifier.height(8.dp))
-
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f, fill = false)
-                    .heightIn(max = 360.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                itemsIndexed(
-                    entries,
-                    key = { idx, it -> "${idx}_${it.fullPath}" }
-                ) { _, entry ->
-                    BrowserEntryRow(
-                        entry = entry,
-                        onClick = {
-                            if (entry.isDirectory) {
-                                currentDir = entry.fullPath
-                            } else {
-                                Session.onFileBrowserPicked(entry.fullPath)
+            if (missingAllFilesPerm) {
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Rose.Yellow.copy(alpha = if (Rose.IsDark) 0.14f else 0.12f))
+                        .border(1.dp, Rose.Yellow.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                        .clickable {
+                            runCatching {
+                                val intent = Intent(
+                                    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                    Uri.parse("package:${ctx.packageName}")
+                                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                ctx.startActivity(intent)
+                            }.onFailure {
+                                runCatching {
+                                    ctx.startActivity(
+                                        Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    )
+                                }
                             }
                         }
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Rounded.WarningAmber, null, tint = Rose.Yellow, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = tr("未授予所有文件访问权限，可能无法显示部分文件 · 点击授权"),
+                        color = Rose.Yellow,
+                        fontSize = fsp(11.5f),
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
 
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                RoseButton(
-                    label = "返回",
-                    modifier = Modifier.weight(1f).height(40.dp)
+            if (isLoading && displayEntries.isEmpty()) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(140.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Session.openSheet(cfg.returnSheet)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        CircularProgressIndicator(
+                            color = Rose.Primary,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(tr("正在读取目录…"), color = Rose.TextSecond, fontSize = fsp(12.5f))
+                    }
                 }
-                if (cfg.selectDirectory) {
-                    RoseButton(
-                        label = "选择当前文件夹",
-                        filled = true,
-                        modifier = Modifier.weight(1.4f).height(40.dp)
-                    ) {
-                        Session.onFileBrowserPicked(currentDir)
+            } else if (displayEntries.isEmpty()) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(120.dp)
+                        .background(Rose.Row, RoundedCornerShape(10.dp))
+                        .border(1.dp, Rose.Divider, RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = tr(if (searchQuery.text.isNotBlank()) "未找到匹配的文件或文件夹" else "当前目录为空或无访问权限"),
+                        color = Rose.TextSecond,
+                        fontSize = fsp(12.5f)
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .heightIn(max = 390.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    itemsIndexed(
+                        displayEntries,
+                        key = { _, it -> if (it.isParentLink) "__parent__" else it.fullPath }
+                    ) { _, entry ->
+                        BrowserEntryRow(
+                            entry = entry,
+                            onClick = {
+                                if (entry.isDirectory) {
+                                    currentDir = entry.fullPath
+                                    searchQuery = TextFieldValue("")
+                                } else {
+                                    Session.onFileBrowserPicked(entry.fullPath)
+                                }
+                            }
+                        )
                     }
                 }
             }
-        }
-    }
-}
 
-@Composable
-private fun BrowserTopChip(
-    icon: ImageVector,
-    label: String,
-    onClick: () -> Unit
-) {
-    var pressed by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (pressed) 0.92f else 1f, Motion.Fast, label = "bChip")
-    Row(
-        Modifier
-            .height(32.dp)
-            .scale(scale)
-            .background(Rose.CardHigh, RoundedCornerShape(8.dp))
-            .border(1.dp, Rose.Divider, RoundedCornerShape(8.dp))
-            .clickableWithTooltip(onPressChange = { pressed = it }, onClick = onClick)
-            .padding(horizontal = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(icon, null, tint = Rose.Primary, modifier = Modifier.size(15.dp))
-        Spacer(Modifier.width(5.dp))
-        Text(tr(label), color = Rose.Text, fontSize = fsp(12f))
+            if (cfg.selectDirectory) {
+                Spacer(Modifier.height(10.dp))
+                RoseButton(
+                    label = "选择当前文件夹",
+                    filled = true,
+                    modifier = Modifier.fillMaxWidth().height(40.dp)
+                ) {
+                    Session.onFileBrowserPicked(currentDir)
+                }
+            }
+        }
     }
 }
 
@@ -2424,33 +2906,30 @@ private fun BrowserEntryRow(
     entry: BrowserEntry,
     onClick: () -> Unit
 ) {
-    var pressed by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (pressed) 0.98f else 1f, Motion.Fast, label = "entryScale")
-
-    val folderBg = lerp(Rose.CardHigh, Rose.Primary, if (Rose.IsDark) 0.18f else 0.15f)
-    val fileBg = Rose.Row
-    val bg by animateColorAsState(
-        targetValue = when {
-            pressed -> Rose.ChipSelected
-            entry.isDirectory -> folderBg
-            else -> fileBg
-        },
-        animationSpec = Motion.ColorFast,
-        label = "entryBg"
-    )
-    val borderColor = if (entry.isDirectory) Rose.Primary.copy(alpha = 0.38f) else Rose.Divider
+    val folderBg = lerp(Rose.CardHigh, Rose.Primary, if (Rose.IsDark) 0.14f else 0.11f)
+    val bg = when {
+        entry.isParentLink -> Rose.CardHigh
+        entry.isDirectory -> folderBg
+        else -> Rose.Row
+    }
+    val borderColor = if (entry.isDirectory && !entry.isParentLink) {
+        Rose.Primary.copy(alpha = 0.32f)
+    } else {
+        Rose.Divider
+    }
 
     val isDark = Rose.IsDark
-    val (icon, iconColor, badgeLabel) = remember(entry.isDirectory, entry.ext, isDark) {
-        if (entry.isDirectory) {
-            Triple(GgIcons.FolderIcon, Rose.Yellow, "DIR")
-        } else {
-            when (entry.ext) {
+    val (icon, iconColor, badgeLabel) = remember(entry.isParentLink, entry.isDirectory, entry.ext, isDark) {
+        when {
+            entry.isParentLink -> Triple(Icons.Rounded.ArrowUpward, Rose.TextSecond, "UP")
+            entry.isDirectory -> Triple(GgIcons.FolderIcon, Rose.Yellow, "DIR")
+            else -> when (entry.ext) {
                 "lua" -> Triple(GgIcons.FileLua, Rose.Green, "LUA")
                 "so" -> Triple(GgIcons.FileSo, Rose.Violet, "SO")
                 "txt", "log", "cfg" -> Triple(GgIcons.FileTxt, Rose.Blue, "TXT")
                 "md" -> Triple(GgIcons.FileMd, Rose.Cyan, "MD")
                 "bin", "dmp", "dat" -> Triple(GgIcons.FileBin, Rose.Orange, "BIN")
+                "ttf", "otf", "ttc" -> Triple(GgIcons.FileTxt, Rose.Primary, entry.ext.uppercase())
                 else -> Triple(GgIcons.FileTxt, Rose.TextSecond, entry.ext.uppercase().take(4).ifEmpty { "FILE" })
             }
         }
@@ -2459,42 +2938,42 @@ private fun BrowserEntryRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .height(50.dp)
-            .scale(scale)
-            .background(bg, RoundedCornerShape(11.dp))
-            .border(1.dp, borderColor, RoundedCornerShape(11.dp))
-            .clickableWithTooltip(onPressChange = { pressed = it }, onClick = onClick)
-            .padding(horizontal = 12.dp),
+            .height(48.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(bg)
+            .border(1.dp, borderColor, RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 11.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             Modifier
-                .size(34.dp)
+                .size(32.dp)
                 .background(
                     iconColor.copy(alpha = if (Rose.IsDark) 0.18f else 0.14f),
-                    RoundedCornerShape(9.dp)
+                    RoundedCornerShape(8.dp)
                 ),
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, entry.name, tint = iconColor, modifier = Modifier.size(20.dp))
+            Icon(icon, entry.name, tint = iconColor, modifier = Modifier.size(19.dp))
         }
 
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(11.dp))
 
         Column(Modifier.weight(1f)) {
             Text(
                 text = entry.name,
                 color = Rose.Text,
-                fontSize = fsp(14f),
+                fontSize = fsp(13.5f),
                 fontWeight = if (entry.isDirectory) FontWeight.SemiBold else FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = if (entry.isDirectory) {
-                    tr("文件夹 · ${entry.childCount} 项")
-                } else {
-                    formatFileSize(entry.sizeBytes)
+                text = when {
+                    entry.isParentLink -> tr("返回上一级")
+                    entry.isDirectory -> tr("文件夹")
+                    else -> formatFileSize(entry.sizeBytes)
                 },
                 color = Rose.TextSecond,
                 fontSize = fsp(11f)
@@ -2523,88 +3002,6 @@ private fun formatFileSize(bytes: Long): String = when {
     else -> "$bytes B"
 }
 
-private fun loadBrowserEntries(
-    dirPath: String,
-    query: String,
-    extFilter: String,
-    customFolders: List<String>
-): List<BrowserEntry> {
-    val cleanDir = dirPath.trimEnd('/').ifEmpty { "/" }
-    val out = LinkedHashMap<String, BrowserEntry>()
-
-    // 1. 尝试直接通过 File API 读取
-    runCatching {
-        val dirFile = File(cleanDir)
-        if (dirFile.exists() && dirFile.isDirectory) {
-            dirFile.listFiles()?.forEach { f ->
-                val isDir = f.isDirectory
-                out[f.name] = BrowserEntry(
-                    name = f.name,
-                    fullPath = f.absolutePath,
-                    isDirectory = isDir,
-                    sizeBytes = if (isDir) 0L else f.length(),
-                    childCount = if (isDir) (f.list()?.size ?: 0) else 0
-                )
-            }
-        }
-    }
-
-    // 2. 如果是 /sdcard，也可以尝试 /storage/emulated/0 对应路径
-    if (out.isEmpty() && cleanDir.startsWith("/sdcard")) {
-        runCatching {
-            val emulatedPath = cleanDir.replaceFirst("/sdcard", "/storage/emulated/0")
-            val emuFile = File(emulatedPath)
-            if (emuFile.exists() && emuFile.isDirectory) {
-                emuFile.listFiles()?.forEach { f ->
-                    val isDir = f.isDirectory
-                    out[f.name] = BrowserEntry(
-                        name = f.name,
-                        fullPath = f.absolutePath,
-                        isDirectory = isDir,
-                        sizeBytes = if (isDir) 0L else f.length(),
-                        childCount = if (isDir) (f.list()?.size ?: 0) else 0
-                    )
-                }
-            }
-        }
-    }
-
-    // 3. 用户自定义添加的文件夹
-    customFolders.forEach { customPath ->
-        val parent = customPath.substringBeforeLast('/', "/")
-        if (parent == cleanDir) {
-            val folderName = customPath.substringAfterLast('/')
-            out[folderName] = BrowserEntry(
-                name = folderName,
-                fullPath = customPath,
-                isDirectory = true,
-                childCount = 0
-            )
-        }
-    }
-
-    // 4. 根目录在非 Root / SELinux 受限场景下提供标准挂载点入口，不生成任何虚拟假文件
-    if (out.isEmpty() && cleanDir == "/") {
-        listOf("/sdcard", "/storage", "/data", "/system").forEach { stdPath ->
-            val f = File(stdPath)
-            val name = stdPath.removePrefix("/")
-            out[name] = BrowserEntry(
-                name = name,
-                fullPath = stdPath,
-                isDirectory = true,
-                childCount = f.list()?.size ?: 0
-            )
-        }
-    }
-
-    return out.values
-        .filter { e ->
-            if (e.name.startsWith(".")) return@filter false
-            query.isBlank() || e.name.contains(query.trim(), ignoreCase = true)
-        }
-        .sortedWith(compareByDescending<BrowserEntry> { it.isDirectory }.thenBy { it.name.lowercase() })
-}
-
 // ============================================================
 // 复制内存 (CopyMemorySheet) - 参考图 5 (将内存数据粘贴复制到另一块内存)
 // ============================================================
@@ -2621,7 +3018,26 @@ fun CopyMemorySheet(ui: Ui) {
         title = "复制内存",
         subtitle = "将指定起始地址的数据复制并粘贴覆盖到目标内存区域",
         onDismiss = Session::closeSheet,
-        maxBodyHeight = 720
+        maxBodyHeight = 720,
+        showSideKeyboard = showKeyboard,
+        sideKeyboard = {
+            BuiltInKeyboard(
+                value = when (focusField) {
+                    0 -> fromTf
+                    1 -> toTf
+                    else -> bytesTf
+                },
+                onValueChange = { next ->
+                    when (focusField) {
+                        0 -> fromTf = next
+                        1 -> toTf = next
+                        else -> bytesTf = next
+                    }
+                },
+                onHistory = { Session.openSheet(Sheet.HISTORY) },
+                onDismiss = { showKeyboard = false }
+            )
+        }
     ) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             // 复制从 : [00000000]
@@ -2753,27 +3169,6 @@ fun CopyMemorySheet(ui: Ui) {
                     }
                 }
             }
-
-            AnimatedVisibility(showKeyboard, enter = expandEnter(), exit = expandExit()) {
-                Column(Modifier.padding(top = 10.dp)) {
-                    BuiltInKeyboard(
-                        value = when (focusField) {
-                            0 -> fromTf
-                            1 -> toTf
-                            else -> bytesTf
-                        },
-                        onValueChange = { next ->
-                            when (focusField) {
-                                0 -> fromTf = next
-                                1 -> toTf = next
-                                else -> bytesTf = next
-                            }
-                        },
-                        onHistory = { Session.openSheet(Sheet.HISTORY) },
-                        onDismiss = { showKeyboard = false }
-                    )
-                }
-            }
         }
     }
 }
@@ -2791,11 +3186,17 @@ fun DumpSheet(ui: Ui) {
         val endHex = java.lang.Long.toHexString(ui.memoryBase + 0x10000L).uppercase()
         mutableStateOf(TextFieldValue(endHex, TextRange(0, endHex.length)))
     }
-    var pathTf by remember(ui.dumpDirPath) {
+    var pathTf by remember {
         mutableStateOf(TextFieldValue(ui.dumpDirPath, TextRange(ui.dumpDirPath.length)))
+    }
+    LaunchedEffect(ui.dumpDirPath) {
+        if (ui.dumpDirPath != pathTf.text) {
+            pathTf = TextFieldValue(ui.dumpDirPath, TextRange(ui.dumpDirPath.length))
+        }
     }
     var focusTarget by remember { mutableIntStateOf(1) } // 0=from, 1=to, 2=path
     var showKeyboard by remember { mutableStateOf(true) }
+    var showPathSuggest by remember { mutableStateOf(false) }
 
     val startAddr = fromTf.text.trim().removePrefix("0x").removeSuffix("h").toULongOrNull(16)?.toLong() ?: 0L
     val endAddr = toTf.text.trim().removePrefix("0x").removeSuffix("h").toULongOrNull(16)?.toLong() ?: 0L
@@ -2805,16 +3206,31 @@ fun DumpSheet(ui: Ui) {
         title = "导出内存",
         subtitle = "将起始地址与结束地址之间的内存区域导出到文件",
         onDismiss = Session::closeSheet,
-        maxBodyHeight = 760
+        maxBodyHeight = 760,
+        showSideKeyboard = showKeyboard && focusTarget != 2,
+        sideKeyboard = {
+            BuiltInKeyboard(
+                value = if (focusTarget == 1) toTf else fromTf,
+                onValueChange = { next ->
+                    if (focusTarget == 1) toTf = next else fromTf = next
+                },
+                onHistory = { Session.openSheet(Sheet.HISTORY) },
+                onDismiss = { showKeyboard = false }
+            )
+        }
     ) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             FieldRow(
                 label = "起始地址",
                 value = fromTf,
                 suppressSystemKeyboard = showKeyboard,
-                onFocus = { focusTarget = 0 }
+                onFocus = {
+                    focusTarget = 0
+                    showPathSuggest = false
+                }
             ) {
                 focusTarget = 0
+                showPathSuggest = false
                 fromTf = it
             }
             Spacer(Modifier.height(8.dp))
@@ -2822,9 +3238,13 @@ fun DumpSheet(ui: Ui) {
                 label = "结束地址",
                 value = toTf,
                 suppressSystemKeyboard = showKeyboard,
-                onFocus = { focusTarget = 1 }
+                onFocus = {
+                    focusTarget = 1
+                    showPathSuggest = false
+                }
             ) {
                 focusTarget = 1
+                showPathSuggest = false
                 toTf = it
             }
             Spacer(Modifier.height(8.dp))
@@ -2838,11 +3258,15 @@ fun DumpSheet(ui: Ui) {
                         label = "路径",
                         value = pathTf,
                         suppressSystemKeyboard = false,
-                        onFocus = { focusTarget = 2 }
+                        onFocus = {
+                            focusTarget = 2
+                            showPathSuggest = pathTf.text.startsWith("/")
+                        }
                     ) {
                         focusTarget = 2
                         pathTf = it
                         Session.setDumpDirPath(it.text)
+                        showPathSuggest = it.text.startsWith("/")
                     }
                 }
                 RoseButton(
@@ -2857,6 +3281,17 @@ fun DumpSheet(ui: Ui) {
                     )
                 }
             }
+
+            PathAutocompleteDropdown(
+                path = pathTf.text,
+                hasRoot = ui.hasRootPermission,
+                directoriesOnly = true,
+                visible = showPathSuggest && focusTarget == 2,
+                onSelect = { completed, _ ->
+                    pathTf = TextFieldValue(completed, TextRange(completed.length))
+                    Session.setDumpDirPath(completed)
+                }
+            )
 
             Spacer(Modifier.height(6.dp))
             Text(
@@ -2880,18 +3315,6 @@ fun DumpSheet(ui: Ui) {
                     }
                 }
             }
-            AnimatedVisibility(showKeyboard && focusTarget != 2, enter = expandEnter(), exit = expandExit()) {
-                Column(Modifier.padding(top = 10.dp)) {
-                    BuiltInKeyboard(
-                        value = if (focusTarget == 1) toTf else fromTf,
-                        onValueChange = { next ->
-                            if (focusTarget == 1) toTf = next else fromTf = next
-                        },
-                        onHistory = { Session.openSheet(Sheet.HISTORY) },
-                        onDismiss = { showKeyboard = false }
-                    )
-                }
-            }
         }
     }
 }
@@ -2911,24 +3334,18 @@ fun AllocateSheet(ui: Ui) {
     NextSheetCard(
         title = "分配内存页",
         onDismiss = Session::popSheet,
-        maxBodyHeight = 760
+        maxBodyHeight = 760,
+        showSideKeyboard = showKeyboard,
+        sideKeyboard = {
+            BuiltInKeyboard(
+                value = addrTf,
+                onValueChange = { addrTf = it },
+                onHistory = { Session.openSheet(Sheet.HISTORY) },
+                onDismiss = { showKeyboard = false }
+            )
+        }
     ) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .background(Rose.Orange.copy(alpha = if (Rose.IsDark) 0.14f else 0.12f), RoundedCornerShape(9.dp))
-                    .border(1.dp, Rose.Orange.copy(alpha = 0.45f), RoundedCornerShape(9.dp))
-                    .padding(horizontal = 10.dp, vertical = 8.dp)
-            ) {
-                Text(
-                    text = tr("提示：当前版本未集成远程 ptrace mmap 注入，暂不支持在目标进程内分配新内存页。"),
-                    color = Rose.Orange,
-                    fontSize = fsp(11.5f),
-                    lineHeight = fsp(16f)
-                )
-            }
-            Spacer(Modifier.height(8.dp))
             AllocPermRow("也许可读", allowRead) { allowRead = it }
             AllocPermRow("也许可写", allowWrite) { allowWrite = it }
             AllocPermRow("也许可执行", allowExec) { allowExec = it }
@@ -3032,17 +3449,6 @@ fun AllocateSheet(ui: Ui) {
                 }
             }
 
-            AnimatedVisibility(showKeyboard, enter = expandEnter(), exit = expandExit()) {
-                Column(Modifier.padding(top = 10.dp)) {
-                    BuiltInKeyboard(
-                        value = addrTf,
-                        onValueChange = { addrTf = it },
-                        onHistory = { Session.openSheet(Sheet.HISTORY) },
-                        onDismiss = { showKeyboard = false }
-                    )
-                }
-            }
-
             Spacer(Modifier.height(12.dp))
             Row(
                 Modifier.fillMaxWidth(),
@@ -3057,12 +3463,12 @@ fun AllocateSheet(ui: Ui) {
                 }
                 Spacer(Modifier.width(10.dp))
                 RoseButton(
-                    label = "暂不可用",
-                    filled = false,
-                    enabled = false,
+                    label = "分配",
+                    filled = true,
+                    enabled = !ui.busy,
                     modifier = Modifier.width(88.dp).height(38.dp)
                 ) {
-                    val clean = addrTf.text.trim().removePrefix("0x").removeSuffix("h")
+                    val clean = addrTf.text.trim().removePrefix("0x").removePrefix("0X").removeSuffix("h").removeSuffix("H")
                     val addr = if (clean.isEmpty() || clean == "0") 0L else (clean.toULongOrNull(16)?.toLong() ?: 0L)
                     Session.allocateMemoryPage(addr, allowRead, allowWrite, allowExec)
                 }
@@ -3100,9 +3506,15 @@ private fun AllocPermRow(
 // ============================================================
 @Composable
 fun FileSheet(ui: Ui) {
-    var tf by remember(ui.fileManagerPath) {
-        mutableStateOf(TextFieldValue(ui.fileManagerPath, TextRange(0, ui.fileManagerPath.length)))
+    var tf by remember {
+        mutableStateOf(TextFieldValue(ui.fileManagerPath, TextRange(ui.fileManagerPath.length)))
     }
+    LaunchedEffect(ui.fileManagerPath) {
+        if (ui.fileManagerPath != tf.text) {
+            tf = TextFieldValue(ui.fileManagerPath, TextRange(ui.fileManagerPath.length))
+        }
+    }
+    var showPathSuggest by remember { mutableStateOf(false) }
     val mode = ui.fileSheetMode
     val sheetTitle = when (mode) {
         FileSheetMode.LOAD -> "从文件载入列表"
@@ -3121,9 +3533,14 @@ fun FileSheet(ui: Ui) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Box(Modifier.weight(1f)) {
-                    FieldRow("路径", tf) {
+                    FieldRow(
+                        label = "路径",
+                        value = tf,
+                        onFocus = { showPathSuggest = tf.text.startsWith("/") }
+                    ) {
                         tf = it
                         Session.setFileManagerPath(it.text)
+                        showPathSuggest = it.text.startsWith("/")
                     }
                 }
                 RoseButton(
@@ -3138,6 +3555,17 @@ fun FileSheet(ui: Ui) {
                     )
                 }
             }
+            PathAutocompleteDropdown(
+                path = tf.text,
+                hasRoot = ui.hasRootPermission,
+                directoriesOnly = false,
+                visible = showPathSuggest,
+                onSelect = { completed, isDir ->
+                    tf = TextFieldValue(completed, TextRange(completed.length))
+                    Session.setFileManagerPath(completed)
+                    showPathSuggest = isDir
+                }
+            )
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 RoseButton("取消", Modifier.weight(0.8f)) { Session.popSheet() }
@@ -3165,54 +3593,76 @@ fun FileSheet(ui: Ui) {
 }
 
 // ============================================================
-// 变速（诚实提示：当前未集成目标进程时钟 Hook）
+// 游戏变速（基于 ShadowHook + xDL Agent 拦截 clock_gettime / gettimeofday / usleep / nanosleep）
 // ============================================================
 @Composable
 fun SpeedSheet(ui: Ui) {
     var speed by remember(ui.speedMultiplier) { mutableStateOf(ui.speedMultiplier) }
-    NextSheetCard(title = "游戏变速", subtitle = "变速控制需要底层时间函数 Hook 支持", onDismiss = Session::popSheet) {
+    NextSheetCard(
+        title = "游戏变速",
+        subtitle = ui.target?.let { "目标：[${it.pid}] ${it.label} · ShadowHook + xDL" } ?: "ShadowHook + xDL 时间倍速",
+        onDismiss = Session::popSheet
+    ) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .background(Rose.Orange.copy(alpha = if (Rose.IsDark) 0.14f else 0.12f), RoundedCornerShape(9.dp))
-                    .border(1.dp, Rose.Orange.copy(alpha = 0.45f), RoundedCornerShape(9.dp))
-                    .padding(horizontal = 10.dp, vertical = 8.dp)
-            ) {
-                Text(
-                    text = tr("提示：当前版本未注入目标进程时钟 Hook（clock_gettime / gettimeofday），变速调节暂不可用。"),
-                    color = Rose.Orange,
-                    fontSize = fsp(11.5f),
-                    lineHeight = fsp(16f)
-                )
-            }
-            Spacer(Modifier.height(10.dp))
             Text(
                 text = String.format(java.util.Locale.US, "%.2fx", speed).trimEnd('0').let {
                     if (it.endsWith(".")) "${it}0x" else if (!it.endsWith("x")) "${it}x" else it
                 },
-                color = Rose.TextDim,
+                color = Rose.Primary,
                 fontSize = fsp(36f),
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Center
             )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf(0.25f, 0.5f, 1.0f, 1.5f).forEach { v ->
-                    RoseButton("${v}x", Modifier.weight(1f), enabled = false) { speed = v }
+                    val selected = kotlin.math.abs(speed - v) < 0.01f
+                    RoseButton("${v}x", Modifier.weight(1f), filled = selected) { speed = v }
                 }
             }
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf(2.0f, 5.0f, 10.0f, 50.0f).forEach { v ->
-                    RoseButton("${v.toInt()}x", Modifier.weight(1f), enabled = false) { speed = v }
+                    val selected = kotlin.math.abs(speed - v) < 0.01f
+                    RoseButton("${v.toInt()}x", Modifier.weight(1f), filled = selected) { speed = v }
+                }
+            }
+            if (ui.hasRootPermission && ui.target != null) {
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Rose.CardHigh, RoundedCornerShape(9.dp))
+                        .clickableWithTooltip { Session.setSpeedWrapEnabled(!ui.speedWrapEnabled) }
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    GgCheckBox(
+                        checked = ui.speedWrapEnabled,
+                        onCheckedChange = { Session.setSpeedWrapEnabled(it) },
+                        size = 20.dp,
+                        accentColor = Rose.Primary
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(tr("启用 wrap 属性预加载 Agent (Root)"), color = Rose.Text, fontSize = fsp(12.5f))
+                        Text(
+                            tr("自动配置 wrap.<包名> 预加载 libggnext_agent.so，重启目标应用后实时响应倍率"),
+                            color = Rose.TextDim,
+                            fontSize = fsp(10.5f),
+                            lineHeight = fsp(14.5f)
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                RoseButton("关闭", Modifier.weight(1f)) { Session.popSheet() }
-                RoseButton("暂不可用", Modifier.weight(1f), filled = false, enabled = false) {
+                RoseButton("重置 1.0x", Modifier.weight(1f)) {
+                    speed = 1.0f
+                    Session.resetSpeed()
+                }
+                RoseButton("应用变速", Modifier.weight(1f), filled = true) {
                     Session.setSpeedMultiplier(speed)
                 }
             }
@@ -3397,24 +3847,37 @@ fun InfoSheet(title: String, text: String) {
 
 @Composable
 fun AboutSheet(ui: Ui) {
-    val ctx = androidx.compose.ui.platform.LocalContext.current
-    val clip = androidx.compose.ui.platform.LocalClipboardManager.current
+    val ctx = LocalContext.current
+    val clip = LocalClipboardManager.current
     val projectUrl = "https://github.com/2304974523/GGNext"
-    val refUrl = "https://github.com/AGameGuardian/agameguardian.github.io"
+    val aggUrl = "https://github.com/AGameGuardian/agameguardian.github.io"
+    val ggUrl = "https://gameguardian.net"
+    val qqGroupNumber = "1131034753"
 
-    fun openOrCopyUrl(url: String) {
-        clip.setText(androidx.compose.ui.text.AnnotatedString(url))
+    fun openExternalUrl(url: String) {
         val opened = runCatching {
-            val intent = android.content.Intent(
-                android.content.Intent.ACTION_VIEW,
-                android.net.Uri.parse(url)
-            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             ctx.startActivity(intent)
         }.isSuccess
-        Session.toast(if (opened) "已复制地址并在浏览器打开" else "已复制链接：$url")
+        if (!opened) {
+            clip.setText(AnnotatedString(url))
+            Session.toast("无法直接打开浏览器，已复制链接")
+        }
     }
 
-    NextSheetCard(title = "关于 GGNext", onDismiss = Session::closeSheet, maxBodyHeight = 560) {
+    fun openOrCopyQqGroup() {
+        clip.setText(AnnotatedString(qqGroupNumber))
+        val qqUri = Uri.parse(
+            "mqqapi://card/show_pslcard?src_type=internal&version=1&uin=$qqGroupNumber&card_type=group&source=qrcode"
+        )
+        val opened = runCatching {
+            ctx.startActivity(Intent(Intent.ACTION_VIEW, qqUri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }.isSuccess
+        Session.toast(if (opened) "正在跳转 QQ 群：$qqGroupNumber" else "已复制 QQ 群号：$qqGroupNumber")
+    }
+
+    NextSheetCard(title = "关于 GGNext", onDismiss = Session::closeSheet, maxBodyHeight = 580) {
         Column(
             Modifier.verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -3436,20 +3899,36 @@ fun AboutSheet(ui: Ui) {
                 )
             }
 
-            AboutLinkCard(
-                label = "项目地址",
-                title = "GGNext GitHub",
-                url = projectUrl,
-                description = "获取源码、版本发布与问题反馈",
-                onClick = { openOrCopyUrl(projectUrl) }
+            AboutActionCard(
+                label = "官方群组",
+                title = "${tr("QQ 群")}：$qqGroupNumber",
+                description = "加入交流反馈、获取更新动态与使用技巧",
+                trailingHint = "点击加入或复制",
+                onClick = { openOrCopyQqGroup() }
             )
 
-            AboutLinkCard(
-                label = "参考来源",
+            AboutActionCard(
+                label = "开源仓库",
+                title = "GGNext GitHub",
+                description = "查看源代码、提交 Issue 与获取版本发布",
+                trailingHint = "点击前往",
+                onClick = { openExternalUrl(projectUrl) }
+            )
+
+            AboutActionCard(
+                label = "特别鸣谢",
                 title = "AGameGuardian",
-                url = refUrl,
                 description = "界面布局与交互设计灵感源自 AGameGuardian 优秀的界面设计。",
-                onClick = { openOrCopyUrl(refUrl) }
+                trailingHint = "点击访问",
+                onClick = { openExternalUrl(aggUrl) }
+            )
+
+            AboutActionCard(
+                label = "特别鸣谢",
+                title = "GameGuardian",
+                description = "致敬经典 Android 内存分析与修改工具 GameGuardian，其功能范式与交互理念为本项目提供了重要启发。",
+                trailingHint = "点击访问",
+                onClick = { openExternalUrl(ggUrl) }
             )
 
             Column(
@@ -3478,11 +3957,11 @@ fun AboutSheet(ui: Ui) {
 }
 
 @Composable
-private fun AboutLinkCard(
+private fun AboutActionCard(
     label: String,
     title: String,
-    url: String,
     description: String,
+    trailingHint: String,
     onClick: () -> Unit
 ) {
     Column(
@@ -3501,10 +3980,9 @@ private fun AboutLinkCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(tr(label), color = Rose.Primary, fontSize = fsp(11.5f), fontWeight = FontWeight.SemiBold)
-            Text(tr("点击打开或复制"), color = Rose.TextDim, fontSize = fsp(11f))
+            Text(tr(trailingHint), color = Rose.TextDim, fontSize = fsp(11f))
         }
         Text(title, color = Rose.Text, fontSize = fsp(14f), fontWeight = FontWeight.Medium)
-        Text(url, color = Rose.Cyan, fontSize = fsp(11.5f))
         Text(tr(description), color = Rose.TextSecond, fontSize = fsp(12f), lineHeight = fsp(17.5f))
     }
 }

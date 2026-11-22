@@ -135,6 +135,7 @@ fun MemoryScreen(ui: Ui) {
                             item = item,
                             checked = ui.isMemoryRowSelected(item),
                             mask = ui.valueMask,
+                            disasmText = ui.memoryDisasm[item.address],
                             isJumpTarget = (item.address == ui.memoryHighlightAddress)
                         )
                     }
@@ -228,6 +229,26 @@ private fun MemoryMiniBar(
                 style = monoStyle(12, Rose.Primary, weight = FontWeight.SemiBold)
             )
         }
+        Spacer(Modifier.weight(1f))
+        val formatSummary = remember(ui.valueMask) { Formatter.maskSummary(ui.valueMask) }
+        val hasAsmFormat = remember(ui.valueMask) { Formatter.activeAsmArch(ui.valueMask) != null }
+        Box(
+            Modifier
+                .background(
+                    if (hasAsmFormat) Rose.ChipSelected else Rose.CardHigh.copy(alpha = ui.metrics.bgOpacity.coerceIn(0.25f, 1.0f)),
+                    RoundedCornerShape(6.dp)
+                )
+                .clickableWithTooltip(tooltip = tr("值格式")) {
+                    Session.openSheet(Sheet.VALUE_FORMAT)
+                }
+                .padding(horizontal = 7.dp, vertical = 3.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = formatSummary,
+                style = monoStyle(11, if (hasAsmFormat) Rose.Cyan else Rose.TextSecond, weight = FontWeight.Medium)
+            )
+        }
     }
 }
 
@@ -236,6 +257,7 @@ private fun MemoryRow(
     item: MemoryItem,
     checked: Boolean,
     mask: Int,
+    disasmText: String?,
     isJumpTarget: Boolean
 ) {
     val currentItem by rememberUpdatedState(item)
@@ -249,6 +271,12 @@ private fun MemoryRow(
     val hexVal = remember(item.value, item.size) { Formatter.hex(item.value, item.size) + "h" }
     val asciiVal = remember(item.value, item.size, mask) {
         if (mask and Formatter.F_STRING != 0) Formatter.bytesToAscii(item.value, item.size) else ""
+    }
+    val asmArch = remember(mask) { Formatter.activeAsmArch(mask) }
+    val resolvedAsm = remember(disasmText, asmArch, item.address, item.value) {
+        if (asmArch == null) ""
+        else if (!disasmText.isNullOrBlank()) disasmText
+        else com.littlecodesauce.ggnext.engine.AsmEngineManager.disassembleWord(asmArch, item.address, item.value, 4)
     }
 
     val rowBgColor = when {
@@ -280,48 +308,70 @@ private fun MemoryRow(
             accentColor = Rose.Primary
         )
         Spacer(Modifier.width(10.dp))
-        Text(
-            text = item.cachedAddressHex,
-            style = monoStyle(
-                size = 13,
-                color = Rose.Primary,
-                weight = if (isJumpTarget) FontWeight.Bold else FontWeight.Normal
-            )
-        )
-        Spacer(Modifier.width(10.dp))
-        Text(
-            text = hexVal,
-            style = monoStyle(
-                size = 12,
-                color = hexColor,
-                weight = if (item.pointer != 0 && item.pointer != 4) FontWeight.SemiBold else FontWeight.Normal
-            )
-        )
-        Spacer(Modifier.width(10.dp))
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.clickableLongPress(
-                onClick = { Session.openSheet(Sheet.EDITOR, currentItem, singleEdit = true) },
-                onLongPress = { Session.openSheet(Sheet.CONTEXT, currentItem) }
-            )
-        ) {
-            Text(text = formattedVal, style = monoStyle(13, accent, weight = FontWeight.Medium))
-            Spacer(Modifier.width(2.dp))
-            // 数据类型字符高光显示，拒绝灰暗
-            Text(text = shortType, style = monoStyle(13, accent, weight = FontWeight.ExtraBold))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = item.cachedAddressHex,
+                    style = monoStyle(
+                        size = 13,
+                        color = Rose.Primary,
+                        weight = if (isJumpTarget) FontWeight.Bold else FontWeight.Normal
+                    )
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = hexVal,
+                    style = monoStyle(
+                        size = 12,
+                        color = hexColor,
+                        weight = if (item.pointer != 0 && item.pointer != 4) FontWeight.SemiBold else FontWeight.Normal
+                    )
+                )
+                Spacer(Modifier.width(10.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickableLongPress(
+                        onClick = { Session.openSheet(Sheet.EDITOR, currentItem, singleEdit = true) },
+                        onLongPress = { Session.openSheet(Sheet.CONTEXT, currentItem) }
+                    )
+                ) {
+                    Text(text = formattedVal, style = monoStyle(13, accent, weight = FontWeight.Medium))
+                    Spacer(Modifier.width(2.dp))
+                    Text(text = shortType, style = monoStyle(13, accent, weight = FontWeight.ExtraBold))
+                }
+                if (asciiVal.isNotEmpty()) {
+                    Spacer(Modifier.width(8.dp))
+                    Text("'$asciiVal'", style = monoStyle(11, Rose.Yellow, weight = FontWeight.Medium))
+                }
+            }
+            if (resolvedAsm.isNotEmpty()) {
+                Spacer(Modifier.height(2.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickableLongPress(
+                        onClick = { Session.openSheet(Sheet.WRITE_ASM, currentItem) },
+                        onLongPress = { Session.openSheet(Sheet.CONTEXT, currentItem) }
+                    )
+                ) {
+                    Text(
+                        text = "${asmArch?.shortCode ?: "ASM"} ",
+                        style = monoStyle(10.5f.toInt(), Rose.Primary, weight = FontWeight.Bold)
+                    )
+                    Text(
+                        text = resolvedAsm,
+                        style = monoStyle(12, Rose.Cyan, weight = FontWeight.Medium),
+                        maxLines = 1
+                    )
+                }
+            }
         }
-        if (asciiVal.isNotEmpty()) {
-            Spacer(Modifier.width(8.dp))
-            Text("'$asciiVal'", style = monoStyle(11, Rose.Yellow, weight = FontWeight.Medium))
-        }
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.width(6.dp))
         if (ptrLabel.isNotEmpty()) {
             Text(
                 text = ptrLabel,
                 style = monoStyle(11, hexColor, weight = FontWeight.Bold)
             )
         } else {
-            // 内存区域代码采用专属高亮色彩
             val regColor = remember(item.region, isDark) { com.littlecodesauce.ggnext.ui.theme.regionColor(item.region) }
             Text(
                 text = item.region,

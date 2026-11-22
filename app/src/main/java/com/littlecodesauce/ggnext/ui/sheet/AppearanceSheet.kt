@@ -1,5 +1,8 @@
 package com.littlecodesauce.ggnext.ui.sheet
 
+import androidx.activity.compose.LocalActivityResultRegistryOwner
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -11,12 +14,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.FontDownload
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,10 +31,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.littlecodesauce.ggnext.core.FileBrowserTarget
 import com.littlecodesauce.ggnext.core.Session
+import com.littlecodesauce.ggnext.core.Sheet
 import com.littlecodesauce.ggnext.core.Ui
-import com.littlecodesauce.ggnext.ui.components.GgCheckBox
 import com.littlecodesauce.ggnext.ui.components.GgSwitch
 import com.littlecodesauce.ggnext.ui.components.NextSheetCard
 import com.littlecodesauce.ggnext.ui.components.RoseButton
@@ -49,7 +57,7 @@ fun AppearanceSheet(ui: Ui) {
 
     NextSheetCard(
         title = "外观",
-        subtitle = "主题配色、深浅色模式、背景透明度与屏幕占比",
+        subtitle = "主题配色、字体、深浅色模式、背景透明度与屏幕占比",
         onDismiss = { Session.popSheet() },
         maxBodyHeight = 720
     ) {
@@ -180,6 +188,9 @@ fun AppearanceSheet(ui: Ui) {
                     )
                 }
 
+                Spacer(Modifier.height(12.dp))
+                ThemeFontImportCard(ui = ui)
+
                 Spacer(Modifier.height(8.dp))
                 SliderRow("背景透明度", bgOpacityPct.toFloat(), 25f..100f, "$bgOpacityPct%") { pct ->
                     val ratio = (pct.roundToInt().coerceIn(25, 100)) / 100f
@@ -199,5 +210,193 @@ fun AppearanceSheet(ui: Ui) {
             Spacer(Modifier.height(8.dp))
             RoseButton("完成", Modifier.fillMaxWidth(), filled = true) { Session.popSheet() }
         }
+    }
+}
+
+@Composable
+private fun ThemeFontImportCard(ui: Ui) {
+    val activePath = ui.customFontPath
+    val hasActivityResultOwner = LocalActivityResultRegistryOwner.current != null
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(Rose.CardHigh, RoundedCornerShape(10.dp))
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.FontDownload,
+                contentDescription = null,
+                tint = Rose.Primary,
+                modifier = Modifier.size(19.dp)
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(tr("字体管理"), color = Rose.Text, fontSize = fsp(14f), fontWeight = FontWeight.Medium)
+                Text(
+                    text = tr("支持导入多个 .ttf/.otf 字体并自由切换或删除"),
+                    color = Rose.TextDim,
+                    fontSize = fsp(10.8f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(Modifier.width(6.dp))
+            if (hasActivityResultOwner) {
+                SafFontImportButton()
+            } else {
+                RoseButton(
+                    label = "导入 TTF",
+                    modifier = Modifier.height(32.dp),
+                    filled = true
+                ) {
+                    Session.openFileBrowser(
+                        initialPath = "/sdcard/Download",
+                        selectDirectory = false,
+                        returnSheet = Sheet.APPEARANCE,
+                        target = FileBrowserTarget.FONT
+                    )
+                }
+            }
+        }
+
+        // 系统默认字体项
+        OverlayFontItemRow(
+            name = tr("系统默认"),
+            subtitle = tr("跟随系统内置字体"),
+            selected = activePath.isBlank(),
+            canDelete = false,
+            onSelect = { Session.selectFont("") },
+            onDelete = {}
+        )
+
+        // 用户已导入字体列表
+        ui.managedFonts.forEach { font ->
+            val sizeLabel = com.littlecodesauce.ggnext.ui.theme.AppFontCache.formatFontSize(font.sizeBytes)
+            OverlayFontItemRow(
+                name = font.displayName,
+                subtitle = if (sizeLabel.isNotEmpty()) "${tr("已导入字体")} · $sizeLabel" else tr("已导入字体"),
+                selected = activePath == font.path,
+                canDelete = true,
+                onSelect = { Session.selectFont(font.path, font.displayName) },
+                onDelete = { Session.deleteManagedFont(font.path) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun OverlayFontItemRow(
+    name: String,
+    subtitle: String,
+    selected: Boolean,
+    canDelete: Boolean,
+    onSelect: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                if (selected) Rose.ChipSelected else Rose.Card,
+                RoundedCornerShape(8.dp)
+            )
+            .border(
+                width = if (selected) 1.dp else 0.6.dp,
+                color = if (selected) Rose.Primary.copy(alpha = 0.65f) else Rose.Divider,
+                shape = RoundedCornerShape(8.dp)
+            )
+            .clickableWithTooltip(onClick = onSelect)
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(18.dp)
+                .background(
+                    if (selected) Rose.Primary else Color.Transparent,
+                    CircleShape
+                )
+                .border(
+                    width = 1.4.dp,
+                    color = if (selected) Rose.Primary else Rose.TextDim,
+                    shape = CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            if (selected) {
+                Icon(
+                    imageVector = Icons.Rounded.Check,
+                    contentDescription = null,
+                    tint = Rose.OnPrimary,
+                    modifier = Modifier.size(12.dp)
+                )
+            }
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = name,
+                color = if (selected) Rose.Primary else Rose.Text,
+                fontSize = fsp(12.8f),
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = subtitle,
+                color = Rose.TextDim,
+                fontSize = fsp(10.5f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (canDelete) {
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .clickableWithTooltip(tooltip = tr("删除字体"), onClick = onDelete),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.DeleteOutline,
+                    contentDescription = tr("删除字体"),
+                    tint = Rose.Red,
+                    modifier = Modifier.size(17.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SafFontImportButton() {
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            Session.importCustomFontFromUri(uri)
+        }
+    }
+    RoseButton(
+        label = "导入 TTF",
+        modifier = Modifier.height(32.dp),
+        filled = true
+    ) {
+        launcher.launch(
+            arrayOf(
+                "font/ttf",
+                "font/otf",
+                "application/x-font-ttf",
+                "application/x-font-opentype",
+                "application/octet-stream",
+                "*/*"
+            )
+        )
     }
 }
