@@ -12,7 +12,6 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -29,12 +28,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.BugReport
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -75,6 +70,8 @@ import com.littlecodesauce.ggnext.ui.screen.SavedListScreen
 import com.littlecodesauce.ggnext.ui.screen.SearchListScreen
 import com.littlecodesauce.ggnext.ui.screen.SettingsScreen
 import com.littlecodesauce.ggnext.ui.sheet.SheetHost
+import com.littlecodesauce.ggnext.ui.theme.GgBorder
+import com.littlecodesauce.ggnext.ui.theme.GgShapes
 import com.littlecodesauce.ggnext.ui.theme.Motion
 import com.littlecodesauce.ggnext.ui.theme.Rose
 
@@ -191,10 +188,11 @@ fun PanelScreen(
                         NextTab.MEMORY -> MemoryScreen(ui)
                         NextTab.SETTINGS -> SettingsScreen(ui, embedded = true)
                         NextTab.DEBUG -> DebugScreen(ui)
+                        NextTab.AI -> AiChatScreen(ui)
                     }
                 }
 
-                if (ui.tab != NextTab.DEBUG) {
+                if (ui.tab != NextTab.DEBUG && ui.tab != NextTab.AI) {
                     RegionSummaryBar(
                         codes = orderedSelectedRegions,
                         checkedItemCount = checkedCount,
@@ -234,7 +232,7 @@ fun PanelScreen(
                 .clip(RoundedCornerShape(panelCorner))
                 .background(Rose.Surface.copy(alpha = bgOpacity), RoundedCornerShape(panelCorner))
                 .then(
-                    if (isPartialScreen) Modifier.border(1.dp, Rose.Divider, RoundedCornerShape(panelCorner))
+                    if (isPartialScreen) Modifier.border(GgBorder.Default, Rose.Divider, RoundedCornerShape(panelCorner))
                     else Modifier
                 )
                 .clickableNoRipple(remember { MutableInteractionSource() }) {}
@@ -293,15 +291,15 @@ fun ToastBubble(msg: String, onDone: () -> Unit) {
         ) {
             Row(
                 Modifier
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(GgShapes.Lg)
                     .background(
-                        color = if (Rose.IsDark) Color(0xF21C181E) else Color(0xF8FFFFFF),
-                        shape = RoundedCornerShape(12.dp)
+                        color = Rose.ToastBg,
+                        shape = GgShapes.Lg
                     )
                     .border(
-                        width = 1.dp,
+                        width = GgBorder.Default,
                         color = if (Rose.IsDark) Rose.Primary.copy(alpha = 0.45f) else Rose.Divider,
-                        shape = RoundedCornerShape(12.dp)
+                        shape = GgShapes.Lg
                     )
                     .padding(horizontal = 14.dp, vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -316,7 +314,7 @@ fun ToastBubble(msg: String, onDone: () -> Unit) {
                 Column {
                     Text(
                         text = "GGNext",
-                        style = monoStyle(11, if (Rose.IsDark) Rose.TextSecond else Color(0xFF6B6875), weight = FontWeight.Bold)
+                        style = monoStyle(11, Rose.ToastBrand, weight = FontWeight.Bold)
                     )
                     Spacer(Modifier.height(1.5.dp))
                     Text(

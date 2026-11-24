@@ -42,15 +42,12 @@ public:
 
     bool isKeystoneLoaded() const;
     bool isCapstoneLoaded() const;
-    std::string loadedDir() const;
 
     AsmEncodeResult assemble(AsmArch arch, uint64_t address, const std::string& code);
 
     std::string disassembleOne(AsmArch arch, uint64_t address, const uint8_t* bytes, size_t size, uint32_t* outInsnSize = nullptr);
 
     std::vector<DisasmInsn> disassembleBlock(AsmArch arch, uint64_t baseAddress, const uint8_t* bytes, size_t size, size_t maxInsns = 256);
-
-    static AsmArch defaultArchForHost();
 
 private:
     AsmEngine() = default;
@@ -61,7 +58,6 @@ private:
     mutable std::mutex mtx_;
     void* ksHandle_ = nullptr;
     void* csHandle_ = nullptr;
-    std::string loadedDir_;
 
     // Keystone function pointers
     void* fnKsOpen_ = nullptr;

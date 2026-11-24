@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -38,20 +37,19 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.History
-import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
@@ -80,6 +78,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.littlecodesauce.ggnext.data.AppPaths
 import com.littlecodesauce.ggnext.core.FileBrowserTarget
 import com.littlecodesauce.ggnext.core.FileSheetMode
 import com.littlecodesauce.ggnext.core.NextTab
@@ -91,12 +90,14 @@ import com.littlecodesauce.ggnext.engine.Formatter
 import com.littlecodesauce.ggnext.model.MemoryItem
 import com.littlecodesauce.ggnext.model.ValueType
 import com.littlecodesauce.ggnext.ui.components.BuiltInKeyboard
+import com.littlecodesauce.ggnext.ui.components.GgBadge
 import com.littlecodesauce.ggnext.ui.components.GgCheckBox
 import com.littlecodesauce.ggnext.ui.components.GgIcons
+import com.littlecodesauce.ggnext.ui.components.GgSegmentTab
+import com.littlecodesauce.ggnext.ui.components.GgSurfaceCard
 import com.littlecodesauce.ggnext.ui.components.GgTextField
 import com.littlecodesauce.ggnext.ui.components.NextSheetCard
 import com.littlecodesauce.ggnext.ui.components.RoseButton
-import com.littlecodesauce.ggnext.ui.components.clickableLongPress
 import com.littlecodesauce.ggnext.ui.components.clickableNoRipple
 import com.littlecodesauce.ggnext.ui.components.clickableWithTooltip
 import com.littlecodesauce.ggnext.ui.components.expandEnter
@@ -118,6 +119,9 @@ import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.platform.LocalContext
 import com.littlecodesauce.ggnext.engine.Shell
+import com.littlecodesauce.ggnext.ui.theme.GgBorder
+import com.littlecodesauce.ggnext.ui.theme.GgControlHeight
+import com.littlecodesauce.ggnext.ui.theme.GgShapes
 import com.littlecodesauce.ggnext.ui.theme.Motion
 import com.littlecodesauce.ggnext.ui.theme.Rose
 import com.littlecodesauce.ggnext.ui.theme.typeColor
@@ -144,12 +148,12 @@ fun EditSheet(ui: Ui) {
 
     val isSingleEdit = ui.editSingleOnly || (targets.size == 1 && ui.selectedCount <= 1)
 
-    var selectedType by remember(firstItem) {
+    var selectedType by remember(firstItem.address) {
         mutableIntStateOf(firstItem.flags and 0x7F)
     }
     var showTypeDropdown by remember { mutableStateOf(false) }
 
-    val initialValueText = remember(firstItem, targets.size) {
+    val initialValueText = remember(firstItem.address, targets.size) {
         when (selectedType) {
             ValueType.FLOAT -> Formatter.floatText(firstItem.value)
             ValueType.DOUBLE -> Formatter.doubleText(firstItem.value)
@@ -158,21 +162,21 @@ fun EditSheet(ui: Ui) {
     }
 
     // 编辑地址数值时，仅默认主数值输入栏为全选状态，其余输入框不进行全选
-    var valueTf by remember(firstItem) {
+    var valueTf by remember(firstItem.address) {
         mutableStateOf(TextFieldValue(initialValueText, TextRange(0, initialValueText.length)))
     }
     var stepTf by remember {
         mutableStateOf(TextFieldValue("", TextRange(0)))
     }
-    var noteTf by remember(firstItem) {
+    var noteTf by remember(firstItem.address) {
         mutableStateOf(TextFieldValue(firstItem.note, TextRange(firstItem.note.length)))
     }
     var moreExpanded by remember { mutableStateOf(false) }
     var activeFillIndex by remember { mutableIntStateOf(-1) }
     var addNotReplace by remember { mutableStateOf(false) }
-    var freezeItems by remember(firstItem) { mutableStateOf(firstItem.freeze) }
-    var freezeType by remember(firstItem) { mutableIntStateOf(firstItem.freezeType) }
-    var freezeFromTf by remember(firstItem) {
+    var freezeItems by remember(firstItem.address) { mutableStateOf(firstItem.freeze) }
+    var freezeType by remember(firstItem.address) { mutableIntStateOf(firstItem.freezeType) }
+    var freezeFromTf by remember(firstItem.address) {
         val initFrom = if (firstItem.freezeType == 3) {
             when (selectedType) {
                 ValueType.FLOAT -> Formatter.floatText(firstItem.freezeFrom)
@@ -182,7 +186,7 @@ fun EditSheet(ui: Ui) {
         } else ""
         mutableStateOf(TextFieldValue(initFrom, TextRange(initFrom.length)))
     }
-    var freezeToTf by remember(firstItem) {
+    var freezeToTf by remember(firstItem.address) {
         val initTo = if (firstItem.freezeType == 3) {
             when (selectedType) {
                 ValueType.FLOAT -> Formatter.floatText(firstItem.freezeTo)
@@ -257,14 +261,14 @@ fun EditSheet(ui: Ui) {
                 Modifier
                     .fillMaxWidth()
                     .height(54.dp)
-                    .background(Rose.CardHigh, RoundedCornerShape(12.dp))
-                    .border(1.dp, Rose.Divider, RoundedCornerShape(12.dp))
+                    .background(Rose.CardHigh, GgShapes.Lg)
+                    .border(1.dp, Rose.Divider, GgShapes.Lg)
                     .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
                     Modifier
-                        .background(Rose.Chip, RoundedCornerShape(8.dp))
+                        .background(Rose.Chip, GgShapes.Sm)
                         .clickableWithTooltip {
                             showTypeDropdown = !showTypeDropdown
                         }
@@ -302,26 +306,25 @@ fun EditSheet(ui: Ui) {
                     suppressSystemKeyboard = showBuiltInKeyboard,
                     placeholder = "输入修改值…"
                 )
-                Spacer(Modifier.width(8.dp))
                 Box(
                     Modifier
-                        .height(34.dp)
-                        .background(
-                            if (showBuiltInKeyboard && keyboardTarget == 1) Rose.ChipSelected else Rose.Chip,
-                            RoundedCornerShape(8.dp)
-                        )
-                        .clickableWithTooltip {
+                        .size(36.dp)
+                        .clickableWithTooltip(tooltip = tr("键盘")) {
                             if (keyboardTarget == 1) {
                                 showBuiltInKeyboard = !showBuiltInKeyboard
                             } else {
                                 keyboardTarget = 1
                                 showBuiltInKeyboard = true
                             }
-                        }
-                        .padding(horizontal = 12.dp),
+                        },
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(tr(if (showBuiltInKeyboard && keyboardTarget == 1) "收起" else "键盘"), color = Rose.Text, fontSize = fsp(13f))
+                    Icon(
+                        imageVector = Icons.Rounded.Keyboard,
+                        contentDescription = tr("键盘"),
+                        tint = if (showBuiltInKeyboard && keyboardTarget == 1) Rose.Primary else Rose.TextSecond,
+                        modifier = Modifier.size(19.dp)
+                    )
                 }
             }
 
@@ -357,12 +360,12 @@ fun EditSheet(ui: Ui) {
                         .fillMaxWidth()
                         .background(
                             if (asmErr.isEmpty()) Rose.Green.copy(alpha = 0.12f) else Rose.Red.copy(alpha = 0.12f),
-                            RoundedCornerShape(8.dp)
+                            GgShapes.Sm
                         )
                         .border(
                             0.8.dp,
                             if (asmErr.isEmpty()) Rose.Green.copy(alpha = 0.45f) else Rose.Red.copy(alpha = 0.45f),
-                            RoundedCornerShape(8.dp)
+                            GgShapes.Sm
                         )
                         .padding(horizontal = 10.dp, vertical = 6.dp)
                 ) {
@@ -390,12 +393,12 @@ fun EditSheet(ui: Ui) {
                                 .height(36.dp)
                                 .background(
                                     if (on) Rose.ChipSelected else Rose.CardHigh,
-                                    RoundedCornerShape(8.dp)
+                                    GgShapes.Sm
                                 )
                                 .border(
                                     width = if (on) 1.dp else 0.dp,
                                     color = if (on) typeColor(t) else Color.Transparent,
-                                    shape = RoundedCornerShape(8.dp)
+                                    shape = GgShapes.Sm
                                 )
                                 .clickableWithTooltip {
                                     selectedType = t
@@ -491,12 +494,12 @@ fun EditSheet(ui: Ui) {
                                     .height(34.dp)
                                     .background(
                                         if (on) Rose.ChipSelected else Rose.CardHigh,
-                                        RoundedCornerShape(8.dp)
+                                        GgShapes.Sm
                                     )
                                     .border(
                                         width = if (on) 1.dp else 1.dp,
                                         color = if (on) Rose.Primary.copy(alpha = 0.55f) else Rose.Divider,
-                                        shape = RoundedCornerShape(8.dp)
+                                        shape = GgShapes.Sm
                                     )
                                     .clickableWithTooltip { freezeType = mode },
                                 contentAlignment = Alignment.Center
@@ -555,8 +558,8 @@ fun EditSheet(ui: Ui) {
                             Modifier
                                 .fillMaxWidth()
                                 .height(54.dp)
-                                .background(Rose.CardHigh, RoundedCornerShape(12.dp))
-                                .border(1.dp, Rose.Divider, RoundedCornerShape(12.dp))
+                                .background(Rose.CardHigh, GgShapes.Lg)
+                                .border(1.dp, Rose.Divider, GgShapes.Lg)
                                 .padding(horizontal = 14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -573,26 +576,25 @@ fun EditSheet(ui: Ui) {
                                 suppressSystemKeyboard = showBuiltInKeyboard,
                                 placeholder = "可选增量步进值"
                             )
-                            Spacer(Modifier.width(8.dp))
                             Box(
                                 Modifier
-                                    .height(34.dp)
-                                    .background(
-                                        if (showBuiltInKeyboard && keyboardTarget == 2) Rose.ChipSelected else Rose.Chip,
-                                        RoundedCornerShape(8.dp)
-                                    )
-                                    .clickableWithTooltip {
+                                    .size(36.dp)
+                                    .clickableWithTooltip(tooltip = tr("键盘")) {
                                         if (keyboardTarget == 2) {
                                             showBuiltInKeyboard = !showBuiltInKeyboard
                                         } else {
                                             keyboardTarget = 2
                                             showBuiltInKeyboard = true
                                         }
-                                    }
-                                    .padding(horizontal = 12.dp),
+                                    },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(tr(if (showBuiltInKeyboard && keyboardTarget == 2) "收起" else "键盘"), color = Rose.Text, fontSize = fsp(13f))
+                                Icon(
+                                    imageVector = Icons.Rounded.Keyboard,
+                                    contentDescription = tr("键盘"),
+                                    tint = if (showBuiltInKeyboard && keyboardTarget == 2) Rose.Primary else Rose.TextSecond,
+                                    modifier = Modifier.size(19.dp)
+                                )
                             }
                         }
 
@@ -603,25 +605,99 @@ fun EditSheet(ui: Ui) {
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        FillPresetPill("值列表", activeFillIndex == 0, Modifier.weight(1.1f)) { applyFillPreset(0) }
-                        FillPresetPill("UTF-8", activeFillIndex == 1, Modifier.weight(1f)) { applyFillPreset(1) }
-                        FillPresetPill("UTF-16LE", activeFillIndex == 2, Modifier.weight(1.2f)) { applyFillPreset(2) }
-                        FillPresetPill("HEX", activeFillIndex == 3, Modifier.weight(0.9f)) { applyFillPreset(3) }
+                        GgSegmentTab(
+                            label = "值列表",
+                            selected = activeFillIndex == 0,
+                            modifier = Modifier.weight(1.1f),
+                            height = GgControlHeight.Chip,
+                            shape = GgShapes.Sm,
+                            accent = Rose.Text,
+                            selectedBackground = Rose.ChipSelected,
+                            unselectedBackground = Rose.Chip,
+                            fontSize = 13f,
+                            horizontalPadding = 12.dp
+                        ) { applyFillPreset(0) }
+                        GgSegmentTab(
+                            label = "UTF-8",
+                            selected = activeFillIndex == 1,
+                            modifier = Modifier.weight(1f),
+                            height = GgControlHeight.Chip,
+                            shape = GgShapes.Sm,
+                            accent = Rose.Text,
+                            selectedBackground = Rose.ChipSelected,
+                            unselectedBackground = Rose.Chip,
+                            fontSize = 13f,
+                            horizontalPadding = 12.dp
+                        ) { applyFillPreset(1) }
+                        GgSegmentTab(
+                            label = "UTF-16LE",
+                            selected = activeFillIndex == 2,
+                            modifier = Modifier.weight(1.2f),
+                            height = GgControlHeight.Chip,
+                            shape = GgShapes.Sm,
+                            accent = Rose.Text,
+                            selectedBackground = Rose.ChipSelected,
+                            unselectedBackground = Rose.Chip,
+                            fontSize = 13f,
+                            horizontalPadding = 12.dp
+                        ) { applyFillPreset(2) }
+                        GgSegmentTab(
+                            label = "HEX",
+                            selected = activeFillIndex == 3,
+                            modifier = Modifier.weight(0.9f),
+                            height = GgControlHeight.Chip,
+                            shape = GgShapes.Sm,
+                            accent = Rose.Text,
+                            selectedBackground = Rose.ChipSelected,
+                            unselectedBackground = Rose.Chip,
+                            fontSize = 13f,
+                            horizontalPadding = 12.dp
+                        ) { applyFillPreset(3) }
                     }
                     Spacer(Modifier.height(8.dp))
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        FillPresetPill("HEX + UTF-8", activeFillIndex == 4) { applyFillPreset(4) }
-                        FillPresetPill("HEX + UTF-16LE", activeFillIndex == 5) { applyFillPreset(5) }
+                        GgSegmentTab(
+                            label = "HEX + UTF-8",
+                            selected = activeFillIndex == 4,
+                            height = GgControlHeight.Chip,
+                            shape = GgShapes.Sm,
+                            accent = Rose.Text,
+                            selectedBackground = Rose.ChipSelected,
+                            unselectedBackground = Rose.Chip,
+                            fontSize = 13f,
+                            horizontalPadding = 12.dp
+                        ) { applyFillPreset(4) }
+                        GgSegmentTab(
+                            label = "HEX + UTF-16LE",
+                            selected = activeFillIndex == 5,
+                            height = GgControlHeight.Chip,
+                            shape = GgShapes.Sm,
+                            accent = Rose.Text,
+                            selectedBackground = Rose.ChipSelected,
+                            unselectedBackground = Rose.Chip,
+                            fontSize = 13f,
+                            horizontalPadding = 12.dp
+                        ) { applyFillPreset(5) }
                     }
                     Spacer(Modifier.height(8.dp))
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        FillPresetPill("HEX + UTF-8 + UTF-16LE", activeFillIndex == 6) { applyFillPreset(6) }
+                        GgSegmentTab(
+                            label = "HEX + UTF-8 + UTF-16LE",
+                            selected = activeFillIndex == 6,
+                            height = GgControlHeight.Chip,
+                            shape = GgShapes.Sm,
+                            accent = Rose.Text,
+                            selectedBackground = Rose.ChipSelected,
+                            unselectedBackground = Rose.Chip,
+                            fontSize = 13f,
+                            horizontalPadding = 12.dp
+                        ) { applyFillPreset(6) }
                     }
                 }
             }
@@ -678,38 +754,6 @@ fun EditSheet(ui: Ui) {
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun FillPresetPill(
-    label: String,
-    selected: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier
-            .height(38.dp)
-            .background(
-                if (selected) Rose.ChipSelected else Rose.Chip,
-                RoundedCornerShape(9.dp)
-            )
-            .border(
-                width = if (selected) 1.dp else 0.dp,
-                color = if (selected) Rose.Primary else Color.Transparent,
-                shape = RoundedCornerShape(9.dp)
-            )
-            .clickableWithTooltip(onClick = onClick)
-            .padding(horizontal = 12.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = tr(label),
-            color = if (selected) Rose.Text else Rose.TextSecond,
-            fontSize = fsp(13f),
-            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal
-        )
     }
 }
 
@@ -831,7 +875,7 @@ fun MenuAction(icon: ImageVector, label: String, onClick: () -> Unit) {
             .height(46.dp)
             .background(
                 if (pressed) Rose.CardHigh else Rose.Row,
-                RoundedCornerShape(11.dp)
+                GgShapes.Lg
             )
             .clickableNoRipple(interaction, onClick = onClick)
             .padding(horizontal = 14.dp),
@@ -879,7 +923,7 @@ fun TypePickSheet(ui: Ui) {
                     Modifier
                         .fillMaxWidth()
                         .height(44.dp)
-                        .background(if (on) Rose.ChipSelected else Rose.CardHigh, RoundedCornerShape(9.dp))
+                        .background(if (on) Rose.ChipSelected else Rose.CardHigh, GgShapes.Sm)
                         .clickableWithTooltip {
                             if (targets.size > 1) {
                                 Session.batchChangeType(targets, t)
@@ -943,7 +987,18 @@ fun AddressEditSheet(ui: Ui) {
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 ValueType.order.take(4).forEach { t ->
-                    MiniChip(ValueType.shortName(t), typeColor(t)) {
+                    GgBadge(
+                        text = ValueType.shortName(t),
+                        modifier = Modifier.height(36.dp).width(46.dp),
+                        textColor = typeColor(t),
+                        backgroundColor = Rose.CardHigh,
+                        shape = GgShapes.Sm,
+                        fontSize = 14f,
+                        fontWeight = FontWeight.Medium,
+                        horizontalPadding = 0.dp,
+                        verticalPadding = 0.dp,
+                        translate = false
+                    ) {
                         if (isBatchTypeMode) {
                             Session.batchChangeType(checked, t)
                         } else if (item != null) {
@@ -955,7 +1010,18 @@ fun AddressEditSheet(ui: Ui) {
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 ValueType.order.drop(4).forEach { t ->
-                    MiniChip(ValueType.shortName(t), typeColor(t)) {
+                    GgBadge(
+                        text = ValueType.shortName(t),
+                        modifier = Modifier.height(36.dp).width(46.dp),
+                        textColor = typeColor(t),
+                        backgroundColor = Rose.CardHigh,
+                        shape = GgShapes.Sm,
+                        fontSize = 14f,
+                        fontWeight = FontWeight.Medium,
+                        horizontalPadding = 0.dp,
+                        verticalPadding = 0.dp,
+                        translate = false
+                    ) {
                         if (isBatchTypeMode) {
                             Session.batchChangeType(checked, t)
                         } else if (item != null) {
@@ -982,18 +1048,6 @@ fun AddressEditSheet(ui: Ui) {
 }
 
 @Composable
-private fun MiniChip(label: String, color: Color, onClick: () -> Unit) {
-    Box(
-        Modifier
-            .height(36.dp)
-            .width(46.dp)
-            .background(Rose.CardHigh, RoundedCornerShape(8.dp))
-            .clickableWithTooltip(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) { Text(label, color = color, fontSize = fsp(14f), fontWeight = FontWeight.Medium) }
-}
-
-@Composable
 fun FieldRow(
     label: String,
     value: TextFieldValue,
@@ -1006,8 +1060,8 @@ fun FieldRow(
         Modifier
             .fillMaxWidth()
             .height(48.dp)
-            .background(Rose.CardHigh, RoundedCornerShape(10.dp))
-            .border(1.dp, Rose.Divider, RoundedCornerShape(10.dp))
+            .background(Rose.CardHigh, GgShapes.Md)
+            .border(1.dp, Rose.Divider, GgShapes.Md)
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1053,7 +1107,7 @@ fun FormatSheet(ui: Ui) {
                                 Modifier
                                     .weight(1f)
                                     .height(42.dp)
-                                    .background(if (on) Rose.ChipSelected else Rose.CardHigh, RoundedCornerShape(9.dp))
+                                    .background(if (on) Rose.ChipSelected else Rose.CardHigh, GgShapes.Sm)
                                     .clickableWithTooltip {
                                         mask = mask xor it2.bit
                                     },
@@ -1149,11 +1203,11 @@ fun OffsetSheet(ui: Ui) {
                 Modifier
                     .fillMaxWidth()
                     .height(44.dp)
-                    .background(Rose.CardHigh, RoundedCornerShape(8.dp))
+                    .background(Rose.CardHigh, GgShapes.Sm)
                     .border(
                         width = 1.dp,
                         color = if (focusField == 0) Rose.Primary.copy(alpha = 0.55f) else Rose.Divider,
-                        shape = RoundedCornerShape(8.dp)
+                        shape = GgShapes.Sm
                     )
                     .clickableNoRipple(remember { MutableInteractionSource() }) { focusField = 0 }
                     .padding(horizontal = 10.dp),
@@ -1182,11 +1236,11 @@ fun OffsetSheet(ui: Ui) {
                 Modifier
                     .fillMaxWidth()
                     .height(44.dp)
-                    .background(Rose.CardHigh, RoundedCornerShape(8.dp))
+                    .background(Rose.CardHigh, GgShapes.Sm)
                     .border(
                         width = 1.dp,
                         color = if (focusField == 1) Rose.Primary.copy(alpha = 0.55f) else Rose.Divider,
-                        shape = RoundedCornerShape(8.dp)
+                        shape = GgShapes.Sm
                     )
                     .clickableNoRipple(remember { MutableInteractionSource() }) { focusField = 1 }
                     .padding(horizontal = 10.dp),
@@ -1246,8 +1300,8 @@ fun OffsetSheet(ui: Ui) {
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .background(Rose.Row, RoundedCornerShape(10.dp))
-                    .border(1.dp, Rose.Divider, RoundedCornerShape(10.dp))
+                    .background(Rose.Row, GgShapes.Md)
+                    .border(1.dp, Rose.Divider, GgShapes.Md)
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
@@ -1356,14 +1410,28 @@ fun CalcOffsetXorSheet(ui: Ui) {
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                CalcModeTabPill(
+                GgSegmentTab(
                     label = "偏移",
                     selected = modeTab == 0,
+                    modifier = Modifier.width(68.dp),
+                    height = GgControlHeight.Chip,
+                    shape = GgShapes.Md,
+                    accent = Rose.Text,
+                    selectedBackground = Rose.Primary.copy(alpha = if (Rose.IsDark) 0.38f else 0.24f),
+                    unselectedBackground = Rose.Row,
+                    fontSize = 14f,
                     onClick = { modeTab = 0 }
                 )
-                CalcModeTabPill(
+                GgSegmentTab(
                     label = "异或",
                     selected = modeTab == 1,
+                    modifier = Modifier.width(68.dp),
+                    height = GgControlHeight.Chip,
+                    shape = GgShapes.Md,
+                    accent = Rose.Text,
+                    selectedBackground = Rose.Primary.copy(alpha = if (Rose.IsDark) 0.38f else 0.24f),
+                    unselectedBackground = Rose.Row,
+                    fontSize = 14f,
                     onClick = { modeTab = 1 }
                 )
                 Spacer(Modifier.weight(1f))
@@ -1382,8 +1450,8 @@ fun CalcOffsetXorSheet(ui: Ui) {
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .background(Rose.Row, RoundedCornerShape(10.dp))
-                        .border(1.dp, Rose.Divider, RoundedCornerShape(10.dp))
+                        .background(Rose.Row, GgShapes.Md)
+                        .border(1.dp, Rose.Divider, GgShapes.Md)
                         .padding(vertical = 28.dp, horizontal = 16.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -1423,9 +1491,9 @@ fun CalcOffsetXorSheet(ui: Ui) {
                             Row(
                                 Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
+                                    .clip(GgShapes.Md)
                                     .background(Rose.Row)
-                                    .border(1.dp, Rose.Divider.copy(alpha = 0.7f), RoundedCornerShape(10.dp))
+                                    .border(1.dp, Rose.Divider.copy(alpha = 0.7f), GgShapes.Md)
                                     .clickableWithTooltip {
                                         clip.setText(AnnotatedString(offsetHexText))
                                         Session.toast("已复制偏移量: $offsetHexText")
@@ -1454,12 +1522,12 @@ fun CalcOffsetXorSheet(ui: Ui) {
                                     Modifier
                                         .background(
                                             Rose.Green.copy(alpha = if (Rose.IsDark) 0.18f else 0.14f),
-                                            RoundedCornerShape(6.dp)
+                                            GgShapes.Xs
                                         )
                                         .border(
                                             1.dp,
                                             Rose.Green.copy(alpha = 0.45f),
-                                            RoundedCornerShape(6.dp)
+                                            GgShapes.Xs
                                         )
                                         .padding(horizontal = 7.dp, vertical = 2.dp),
                                     contentAlignment = Alignment.Center
@@ -1480,9 +1548,9 @@ fun CalcOffsetXorSheet(ui: Ui) {
                             Column(
                                 Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
+                                    .clip(GgShapes.Md)
                                     .background(Rose.Row)
-                                    .border(1.dp, Rose.Divider.copy(alpha = 0.7f), RoundedCornerShape(10.dp))
+                                    .border(1.dp, Rose.Divider.copy(alpha = 0.7f), GgShapes.Md)
                                     .clickableWithTooltip {
                                         clip.setText(AnnotatedString(valXor.toString()))
                                         Session.toast("已复制异或值: $valXor (0x$valXorHex)")
@@ -1514,12 +1582,12 @@ fun CalcOffsetXorSheet(ui: Ui) {
                                         Modifier
                                             .background(
                                                 Rose.Yellow.copy(alpha = if (Rose.IsDark) 0.18f else 0.14f),
-                                                RoundedCornerShape(6.dp)
+                                                GgShapes.Xs
                                             )
                                             .border(
                                                 1.dp,
                                                 Rose.Yellow.copy(alpha = 0.45f),
-                                                RoundedCornerShape(6.dp)
+                                                GgShapes.Xs
                                             )
                                             .padding(horizontal = 7.dp, vertical = 2.dp),
                                         contentAlignment = Alignment.Center
@@ -1554,12 +1622,12 @@ fun CalcOffsetXorSheet(ui: Ui) {
                                         Modifier
                                             .background(
                                                 Rose.Green.copy(alpha = if (Rose.IsDark) 0.18f else 0.14f),
-                                                RoundedCornerShape(6.dp)
+                                                GgShapes.Xs
                                             )
                                             .border(
                                                 1.dp,
                                                 Rose.Green.copy(alpha = 0.45f),
-                                                RoundedCornerShape(6.dp)
+                                                GgShapes.Xs
                                             )
                                             .padding(horizontal = 7.dp, vertical = 2.dp),
                                         contentAlignment = Alignment.Center
@@ -1592,41 +1660,6 @@ fun CalcOffsetXorSheet(ui: Ui) {
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun CalcModeTabPill(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    val bgColor by animateColorAsState(
-        targetValue = if (selected) Rose.Primary.copy(alpha = if (Rose.IsDark) 0.38f else 0.24f) else Rose.Row,
-        animationSpec = Motion.ColorFast,
-        label = "calcTabBg"
-    )
-    val borderColor by animateColorAsState(
-        targetValue = if (selected) Rose.Primary.copy(alpha = 0.65f) else Rose.Divider,
-        animationSpec = Motion.ColorFast,
-        label = "calcTabBorder"
-    )
-    Box(
-        Modifier
-            .height(38.dp)
-            .width(68.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(bgColor, RoundedCornerShape(10.dp))
-            .border(1.dp, borderColor, RoundedCornerShape(10.dp))
-            .clickableWithTooltip(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = tr(label),
-            color = Rose.Text,
-            fontSize = fsp(14f),
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
-        )
     }
 }
 
@@ -1687,7 +1720,7 @@ fun GotoSheet() {
                 Modifier
                     .fillMaxWidth()
                     .height(48.dp)
-                    .background(Rose.CardHigh, RoundedCornerShape(10.dp))
+                    .background(Rose.CardHigh, GgShapes.Md)
                     .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -1700,23 +1733,25 @@ fun GotoSheet() {
                     suppressSystemKeyboard = showKeyboard,
                     placeholder = "输入地址"
                 )
-                Spacer(Modifier.width(6.dp))
-                // 收起键盘按钮
                 Box(
                     Modifier
-                        .background(Rose.Chip, RoundedCornerShape(6.dp))
-                        .clickableWithTooltip { showKeyboard = !showKeyboard }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                        .size(36.dp)
+                        .clickableWithTooltip(tooltip = tr("键盘")) { showKeyboard = !showKeyboard },
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(if (showKeyboard) "收起" else "键盘", color = Rose.TextSecond, fontSize = fsp(12f))
+                    Icon(
+                        imageVector = Icons.Rounded.Keyboard,
+                        contentDescription = tr("键盘"),
+                        tint = if (showKeyboard) Rose.Primary else Rose.TextSecond,
+                        modifier = Modifier.size(19.dp)
+                    )
                 }
                 Spacer(Modifier.width(6.dp))
                 // 模块列表按钮 ☰
                 Box(
                     Modifier
                         .size(32.dp)
-                        .background(Rose.Chip, RoundedCornerShape(6.dp))
+                        .background(Rose.Chip, GgShapes.Xs)
                         .clickableWithTooltip {
                             Session.openSheet(Sheet.MODULE_LIST)
                         },
@@ -1737,7 +1772,7 @@ fun GotoSheet() {
                     Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp)
-                        .background(Rose.CardHigh, RoundedCornerShape(8.dp))
+                        .background(Rose.CardHigh, GgShapes.Sm)
                         .padding(8.dp)
                 ) {
                     Text(
@@ -1756,7 +1791,7 @@ fun GotoSheet() {
                             Box(
                                 Modifier
                                     .height(30.dp)
-                                    .background(Rose.Chip, RoundedCornerShape(6.dp))
+                                    .background(Rose.Chip, GgShapes.Xs)
                                     .clickableWithTooltip {
                                         tf = TextFieldValue(h, TextRange(h.length))
                                         showGotoHistory = false
@@ -1779,7 +1814,7 @@ fun GotoSheet() {
                     Modifier
                         .weight(1f)
                         .height(36.dp)
-                        .background(if (showGotoHistory) Rose.ChipSelected else Rose.CardHigh, RoundedCornerShape(8.dp))
+                        .background(if (showGotoHistory) Rose.ChipSelected else Rose.CardHigh, GgShapes.Sm)
                         .clickableWithTooltip { showGotoHistory = !showGotoHistory },
                     contentAlignment = Alignment.Center
                 ) {
@@ -1790,7 +1825,7 @@ fun GotoSheet() {
                         Modifier
                             .weight(1f)
                             .height(36.dp)
-                            .background(Rose.CardHigh, RoundedCornerShape(8.dp))
+                            .background(Rose.CardHigh, GgShapes.Sm)
                             .clickableWithTooltip {
                                 val regionBase = Session.firstRegionBase(label)
                                 if (regionBase != null && regionBase != 0L) {
@@ -1891,7 +1926,7 @@ fun ModuleListSheet() {
                             .height(38.dp)
                             .background(
                                 if (isSel) Rose.ChipSelected else Rose.CardHigh,
-                                RoundedCornerShape(8.dp)
+                                GgShapes.Sm
                             )
                             .clickableWithTooltip { selectedTab = tabName },
                         contentAlignment = Alignment.Center
@@ -1912,7 +1947,7 @@ fun ModuleListSheet() {
                     Modifier
                         .fillMaxWidth()
                         .height(44.dp)
-                        .background(Rose.CardHigh, RoundedCornerShape(8.dp))
+                        .background(Rose.CardHigh, GgShapes.Sm)
                         .padding(horizontal = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -1942,7 +1977,7 @@ fun ModuleListSheet() {
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .background(Rose.Row, RoundedCornerShape(8.dp))
+                            .background(Rose.Row, GgShapes.Sm)
                             .clickableWithTooltip {
                                 Session.goto(item.startAddress, recordHistory = true, highlightTarget = true)
                                 Session.toast("已跳转到模块起始地址：0x${item.startHex}")
@@ -2012,8 +2047,8 @@ fun ScriptSheet(ui: Ui) {
                 Modifier
                     .fillMaxWidth()
                     .height(54.dp)
-                    .background(Rose.CardHigh, RoundedCornerShape(12.dp))
-                    .border(1.dp, Rose.Divider, RoundedCornerShape(12.dp))
+                    .background(Rose.CardHigh, GgShapes.Lg)
+                    .border(1.dp, Rose.Divider, GgShapes.Lg)
                     .padding(horizontal = 14.dp),
                 contentAlignment = Alignment.CenterStart
             ) {
@@ -2051,8 +2086,8 @@ fun ScriptSheet(ui: Ui) {
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .background(Rose.Orange.copy(alpha = if (Rose.IsDark) 0.14f else 0.12f), RoundedCornerShape(9.dp))
-                    .border(1.dp, Rose.Orange.copy(alpha = 0.45f), RoundedCornerShape(9.dp))
+                    .background(Rose.Orange.copy(alpha = if (Rose.IsDark) 0.14f else 0.12f), GgShapes.Sm)
+                    .border(1.dp, Rose.Orange.copy(alpha = 0.45f), GgShapes.Sm)
                     .padding(horizontal = 10.dp, vertical = 8.dp)
             ) {
                 Text(
@@ -2098,7 +2133,7 @@ fun ScriptSheet(ui: Ui) {
                                 Modifier
                                     .fillMaxWidth()
                                     .height(44.dp)
-                                    .clip(RoundedCornerShape(9.dp))
+                                    .clip(GgShapes.Sm)
                             ) {
                                 // 左滑展示快捷操作按钮（固定、编辑、删除）
                                 Row(
@@ -2235,8 +2270,8 @@ fun ScriptSheet(ui: Ui) {
                         Column(
                             Modifier
                                 .fillMaxWidth()
-                                .background(Rose.Card, RoundedCornerShape(10.dp))
-                                .border(1.dp, Rose.Primary.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                                .background(Rose.Card, GgShapes.Md)
+                                .border(1.dp, Rose.Primary.copy(alpha = 0.5f), GgShapes.Md)
                                 .padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
@@ -2562,9 +2597,9 @@ private fun PathAutocompleteDropdown(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 4.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .clip(GgShapes.Md)
             .background(Rose.CardHigh)
-            .border(1.dp, Rose.Divider, RoundedCornerShape(10.dp))
+            .border(1.dp, Rose.Divider, GgShapes.Md)
             .heightIn(max = 220.dp)
             .verticalScroll(rememberScrollState())
     ) {
@@ -2712,7 +2747,7 @@ fun FileBrowserSheet(ui: Ui) {
                         Modifier
                             .background(
                                 if (isLast) Rose.ChipSelected else Rose.CardHigh,
-                                RoundedCornerShape(6.dp)
+                                GgShapes.Xs
                             )
                             .clickableWithTooltip { currentDir = path }
                             .padding(horizontal = 8.dp, vertical = 4.dp)
@@ -2741,8 +2776,8 @@ fun FileBrowserSheet(ui: Ui) {
                     Modifier
                         .weight(1f)
                         .height(36.dp)
-                        .background(Rose.CardHigh, RoundedCornerShape(8.dp))
-                        .border(1.dp, Rose.Divider, RoundedCornerShape(8.dp))
+                        .background(Rose.CardHigh, GgShapes.Sm)
+                        .border(1.dp, Rose.Divider, GgShapes.Sm)
                         .padding(horizontal = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -2761,9 +2796,9 @@ fun FileBrowserSheet(ui: Ui) {
                 Box(
                     Modifier
                         .height(36.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(GgShapes.Sm)
                         .background(if (showHidden) Rose.ChipSelected else Rose.CardHigh)
-                        .border(1.dp, if (showHidden) Rose.Primary.copy(alpha = 0.5f) else Rose.Divider, RoundedCornerShape(8.dp))
+                        .border(1.dp, if (showHidden) Rose.Primary.copy(alpha = 0.5f) else Rose.Divider, GgShapes.Sm)
                         .clickableWithTooltip(tooltip = "显示隐藏文件") { showHidden = !showHidden }
                         .padding(horizontal = 9.dp),
                     contentAlignment = Alignment.Center
@@ -2776,9 +2811,9 @@ fun FileBrowserSheet(ui: Ui) {
                 Box(
                     Modifier
                         .size(36.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(GgShapes.Sm)
                         .background(Rose.CardHigh)
-                        .border(1.dp, Rose.Divider, RoundedCornerShape(8.dp))
+                        .border(1.dp, Rose.Divider, GgShapes.Sm)
                         .clickableWithTooltip(tooltip = "刷新目录") {
                             DirListCache.invalidate(currentDir)
                             refreshNonce++
@@ -2794,9 +2829,9 @@ fun FileBrowserSheet(ui: Ui) {
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(GgShapes.Sm)
                         .background(Rose.Yellow.copy(alpha = if (Rose.IsDark) 0.14f else 0.12f))
-                        .border(1.dp, Rose.Yellow.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                        .border(1.dp, Rose.Yellow.copy(alpha = 0.4f), GgShapes.Sm)
                         .clickable {
                             runCatching {
                                 val intent = Intent(
@@ -2850,8 +2885,8 @@ fun FileBrowserSheet(ui: Ui) {
                     Modifier
                         .fillMaxWidth()
                         .height(120.dp)
-                        .background(Rose.Row, RoundedCornerShape(10.dp))
-                        .border(1.dp, Rose.Divider, RoundedCornerShape(10.dp)),
+                        .background(Rose.Row, GgShapes.Md)
+                        .border(1.dp, Rose.Divider, GgShapes.Md),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -2939,9 +2974,9 @@ private fun BrowserEntryRow(
         Modifier
             .fillMaxWidth()
             .height(48.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .clip(GgShapes.Md)
             .background(bg)
-            .border(1.dp, borderColor, RoundedCornerShape(10.dp))
+            .border(1.dp, borderColor, GgShapes.Md)
             .clickable(onClick = onClick)
             .padding(horizontal = 11.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -2951,7 +2986,7 @@ private fun BrowserEntryRow(
                 .size(32.dp)
                 .background(
                     iconColor.copy(alpha = if (Rose.IsDark) 0.18f else 0.14f),
-                    RoundedCornerShape(8.dp)
+                    GgShapes.Sm
                 ),
             contentAlignment = Alignment.Center
         ) {
@@ -2984,7 +3019,7 @@ private fun BrowserEntryRow(
             Modifier
                 .background(
                     iconColor.copy(alpha = if (Rose.IsDark) 0.20f else 0.15f),
-                    RoundedCornerShape(6.dp)
+                    GgShapes.Xs
                 )
                 .padding(horizontal = 7.dp, vertical = 3.dp)
         ) {
@@ -3045,7 +3080,7 @@ fun CopyMemorySheet(ui: Ui) {
                 Modifier
                     .fillMaxWidth()
                     .height(48.dp)
-                    .background(Rose.CardHigh, RoundedCornerShape(10.dp))
+                    .background(Rose.CardHigh, GgShapes.Md)
                     .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -3084,7 +3119,7 @@ fun CopyMemorySheet(ui: Ui) {
                 Modifier
                     .fillMaxWidth()
                     .height(48.dp)
-                    .background(Rose.CardHigh, RoundedCornerShape(10.dp))
+                    .background(Rose.CardHigh, GgShapes.Md)
                     .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -3121,7 +3156,7 @@ fun CopyMemorySheet(ui: Ui) {
                 Modifier
                     .fillMaxWidth()
                     .height(48.dp)
-                    .background(Rose.CardHigh, RoundedCornerShape(10.dp))
+                    .background(Rose.CardHigh, GgShapes.Md)
                     .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -3387,7 +3422,7 @@ fun AllocateSheet(ui: Ui) {
                         .size(38.dp)
                         .background(
                             if (showRegionPicker) Rose.ChipSelected else Rose.CardHigh,
-                            RoundedCornerShape(8.dp)
+                            GgShapes.Sm
                         )
                         .clickableWithTooltip {
                             showRegionPicker = !showRegionPicker
@@ -3435,7 +3470,7 @@ fun AllocateSheet(ui: Ui) {
                             Modifier
                                 .fillMaxWidth()
                                 .height(36.dp)
-                                .background(Rose.CardHigh, RoundedCornerShape(7.dp))
+                                .background(Rose.CardHigh, GgShapes.Sm)
                                 .clickableWithTooltip {
                                     addrTf = TextFieldValue(hexVal, TextRange(hexVal.length))
                                     showRegionPicker = false
@@ -3633,7 +3668,7 @@ fun SpeedSheet(ui: Ui) {
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .background(Rose.CardHigh, RoundedCornerShape(9.dp))
+                        .background(Rose.CardHigh, GgShapes.Sm)
                         .clickableWithTooltip { Session.setSpeedWrapEnabled(!ui.speedWrapEnabled) }
                         .padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -3692,7 +3727,7 @@ fun LanguageSheet() {
                     Modifier
                         .fillMaxWidth()
                         .height(48.dp)
-                        .background(if (selected) Rose.ChipSelected else Rose.CardHigh, RoundedCornerShape(10.dp))
+                        .background(if (selected) Rose.ChipSelected else Rose.CardHigh, GgShapes.Md)
                         .clickableWithTooltip {
                             Session.setSetting("language", code)
                             Session.toast("已切换语言：$name")
@@ -3725,7 +3760,7 @@ fun HistorySheet(ui: Ui) {
                     Modifier
                         .fillMaxWidth()
                         .height(46.dp)
-                        .background(Rose.CardHigh, RoundedCornerShape(9.dp))
+                        .background(Rose.CardHigh, GgShapes.Sm)
                         .clickableWithTooltip { Session.pickHistory(h) }
                         .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -3774,16 +3809,22 @@ fun FunctionSheet() {
 
 @Composable
 fun LogSheet() {
-    // Bug 9 修复：使日志内容成为可观察状态，清空时立即响应刷新界面
-    var lines by remember { mutableStateOf(AppLog.snapshot()) }
-    NextSheetCard(title = "运行日志", onDismiss = Session::closeSheet, maxBodyHeight = 560) {
+    // v0.9.4：实时观察日志流；清空/新增即时刷新
+    val lines by AppLog.flow.collectAsState()
+    val clipboard = LocalClipboardManager.current
+    NextSheetCard(
+        title = "运行日志",
+        subtitle = "日志保存到 Download/GGNext/logs，导出到 Download/GGNext",
+        onDismiss = Session::closeSheet,
+        maxBodyHeight = 600
+    ) {
         Column {
             Box(
                 Modifier
                     .fillMaxWidth()
                     .weight(1f, fill = false)
                     .heightIn(max = 380.dp)
-                    .background(Rose.CardHigh, RoundedCornerShape(9.dp))
+                    .background(Rose.CardHigh, GgShapes.Sm)
                     .verticalScroll(rememberScrollState())
                     .padding(12.dp)
             ) {
@@ -3795,9 +3836,19 @@ fun LogSheet() {
             }
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                RoseButton("导出文件", Modifier.weight(1f)) {
+                    val path = AppLog.exportToFile()
+                    Session.toast(if (path != null) "日志已导出：$path" else "导出失败")
+                }
+                RoseButton("复制全部", Modifier.weight(1f)) {
+                    clipboard.setText(AnnotatedString(AppLog.fullText()))
+                    Session.toast("日志已复制")
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 RoseButton("清空", Modifier.weight(1f)) {
                     AppLog.clear()
-                    lines = emptyList()
                     Session.toast("日志已清空")
                 }
                 RoseButton("关闭", Modifier.weight(1f), filled = true) { Session.closeSheet() }
@@ -3850,6 +3901,7 @@ fun AboutSheet(ui: Ui) {
     val ctx = LocalContext.current
     val clip = LocalClipboardManager.current
     val projectUrl = "https://github.com/2304974523/GGNext"
+    val forkUrl = "https://github.com/Rust-One/GGNext"
     val aggUrl = "https://github.com/AGameGuardian/agameguardian.github.io"
     val ggUrl = "https://gameguardian.net"
     val qqGroupNumber = "1131034753"
@@ -3885,12 +3937,12 @@ fun AboutSheet(ui: Ui) {
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .background(Rose.CardHigh, RoundedCornerShape(12.dp))
-                    .border(1.dp, Rose.Divider, RoundedCornerShape(12.dp))
+                    .background(Rose.CardHigh, GgShapes.Lg)
+                    .border(1.dp, Rose.Divider, GgShapes.Lg)
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text("GGNext v0.6", color = Rose.Text, fontSize = fsp(15.5f), fontWeight = FontWeight.SemiBold)
+                Text("GGNext v0.9.4", color = Rose.Text, fontSize = fsp(15.5f), fontWeight = FontWeight.SemiBold)
                 Text(
                     tr("开源内存分析与调试工具，遵循 GNU General Public License v3.0 协议发布。"),
                     color = Rose.TextSecond,
@@ -3909,10 +3961,18 @@ fun AboutSheet(ui: Ui) {
 
             AboutActionCard(
                 label = "开源仓库",
-                title = "GGNext GitHub",
+                title = "GGNext GitHub（原作者）",
                 description = "查看源代码、提交 Issue 与获取版本发布",
                 trailingHint = "点击前往",
                 onClick = { openExternalUrl(projectUrl) }
+            )
+
+            AboutActionCard(
+                label = "本分支仓库",
+                title = "GGNext AI Mod（Rust-One）",
+                description = "本修改版源码与最新 Releases 下载地址",
+                trailingHint = "点击前往",
+                onClick = { openExternalUrl(forkUrl) }
             )
 
             AboutActionCard(
@@ -3934,8 +3994,8 @@ fun AboutSheet(ui: Ui) {
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .background(Rose.Surface.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
-                    .border(1.dp, Rose.Divider, RoundedCornerShape(10.dp))
+                    .background(Rose.Surface.copy(alpha = 0.55f), GgShapes.Md)
+                    .border(1.dp, Rose.Divider, GgShapes.Md)
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
@@ -3964,15 +4024,13 @@ private fun AboutActionCard(
     trailingHint: String,
     onClick: () -> Unit
 ) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(Rose.CardHigh)
-            .border(1.dp, Rose.Divider, RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+    GgSurfaceCard(
+        shape = GgShapes.Lg,
+        backgroundColor = Rose.CardHigh,
+        borderColor = Rose.Divider,
+        borderWidth = GgBorder.Default,
+        contentPadding = PaddingValues(12.dp),
+        onClick = onClick
     ) {
         Row(
             Modifier.fillMaxWidth(),
@@ -3982,7 +4040,9 @@ private fun AboutActionCard(
             Text(tr(label), color = Rose.Primary, fontSize = fsp(11.5f), fontWeight = FontWeight.SemiBold)
             Text(tr(trailingHint), color = Rose.TextDim, fontSize = fsp(11f))
         }
+        Spacer(Modifier.height(4.dp))
         Text(title, color = Rose.Text, fontSize = fsp(14f), fontWeight = FontWeight.Medium)
+        Spacer(Modifier.height(4.dp))
         Text(tr(description), color = Rose.TextSecond, fontSize = fsp(12f), lineHeight = fsp(17.5f))
     }
 }

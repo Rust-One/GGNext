@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
@@ -33,18 +32,26 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.littlecodesauce.ggnext.data.AppPaths
 import com.littlecodesauce.ggnext.core.FileBrowserTarget
 import com.littlecodesauce.ggnext.core.Session
 import com.littlecodesauce.ggnext.core.Sheet
 import com.littlecodesauce.ggnext.core.Ui
-import com.littlecodesauce.ggnext.ui.components.GgSwitch
+import com.littlecodesauce.ggnext.ui.components.GgIconActionButton
+import com.littlecodesauce.ggnext.ui.components.GgSegmentTab
+import com.littlecodesauce.ggnext.ui.components.GgSettingSliderRow
+import com.littlecodesauce.ggnext.ui.components.GgSettingSwitchRow
 import com.littlecodesauce.ggnext.ui.components.NextSheetCard
 import com.littlecodesauce.ggnext.ui.components.RoseButton
 import com.littlecodesauce.ggnext.ui.components.clickableWithTooltip
 import com.littlecodesauce.ggnext.ui.components.fsp
 import com.littlecodesauce.ggnext.ui.components.tr
-import com.littlecodesauce.ggnext.ui.screen.SliderRow
 import com.littlecodesauce.ggnext.ui.theme.DarkMode
+import com.littlecodesauce.ggnext.ui.theme.GgBorder
+import com.littlecodesauce.ggnext.ui.theme.GgControlHeight
+import com.littlecodesauce.ggnext.ui.theme.GgIconSize
+import com.littlecodesauce.ggnext.ui.theme.GgShapes
+import com.littlecodesauce.ggnext.ui.theme.GgSpacing
 import com.littlecodesauce.ggnext.ui.theme.Rose
 import com.littlecodesauce.ggnext.ui.theme.ThemePreset
 import kotlin.math.roundToInt
@@ -69,15 +76,15 @@ fun AppearanceSheet(ui: Ui) {
                     .verticalScroll(rememberScrollState())
             ) {
                 Text(tr("主题色"), color = Rose.TextSecond, fontSize = fsp(13f))
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(GgSpacing.Md))
                 val isDark = Rose.IsDark
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(GgSpacing.Md)) {
                     ThemePreset.entries.chunked(4).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(GgSpacing.Md)) {
                             row.forEach { p ->
                                 val on = ui.preset == p
                                 val swatch = p.seedFor(isDark)
-                                val checkTint = if (swatch.luminance() > 0.55f) Color(0xFF141013) else Color.White
+                                val checkTint = if (swatch.luminance() > 0.55f) Rose.OnDarkInk else Color.White
                                 Column(
                                     Modifier
                                         .weight(1f)
@@ -89,7 +96,7 @@ fun AppearanceSheet(ui: Ui) {
                                 ) {
                                     Box(
                                         Modifier
-                                            .size(40.dp)
+                                            .size(GgControlHeight.Button)
                                             .background(swatch, CircleShape)
                                             .then(if (on) Modifier.border(2.dp, Rose.Text, CircleShape) else Modifier),
                                         contentAlignment = Alignment.Center
@@ -98,11 +105,11 @@ fun AppearanceSheet(ui: Ui) {
                                             Icon(
                                                 Icons.Rounded.Check, null,
                                                 tint = checkTint,
-                                                modifier = Modifier.size(18.dp)
+                                                modifier = Modifier.size(GgIconSize.Md)
                                             )
                                         }
                                     }
-                                    Spacer(Modifier.height(4.dp))
+                                    Spacer(Modifier.height(GgSpacing.Xs))
                                     Text(
                                         tr(p.label),
                                         color = if (on) Rose.Text else Rose.TextSecond,
@@ -116,98 +123,62 @@ fun AppearanceSheet(ui: Ui) {
                     }
                 }
 
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(GgSpacing.Xl))
                 Text(tr("深色模式"), color = Rose.TextSecond, fontSize = fsp(13f))
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Spacer(Modifier.height(GgSpacing.Md))
+                Row(horizontalArrangement = Arrangement.spacedBy(GgSpacing.Md)) {
                     DarkMode.entries.forEach { d ->
-                        val on = ui.darkMode == d
-                        Box(
-                            Modifier
-                                .weight(1f)
-                                .height(42.dp)
-                                .background(
-                                    if (on) Rose.ChipSelected else Rose.CardHigh,
-                                    RoundedCornerShape(10.dp)
-                                )
-                                .border(
-                                    width = if (on) 1.dp else 0.dp,
-                                    color = if (on) Rose.Primary else Color.Transparent,
-                                    shape = RoundedCornerShape(10.dp)
-                                )
-                                .clickableWithTooltip {
-                                    Session.setDarkMode(d)
-                                    Session.toast("${tr("深色模式")}：${tr(d.label)}")
-                                },
-                            contentAlignment = Alignment.Center
+                        GgSegmentTab(
+                            label = d.label,
+                            selected = ui.darkMode == d,
+                            modifier = Modifier.weight(1f),
+                            height = GgControlHeight.ButtonLg,
+                            shape = GgShapes.Md,
+                            accent = Rose.Text,
+                            fontSize = 13f,
+                            horizontalPadding = GgSpacing.Xs
                         ) {
-                            Text(
-                                tr(d.label),
-                                color = if (on) Rose.Text else Rose.TextSecond,
-                                fontSize = fsp(13f),
-                                fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal
-                            )
+                            Session.setDarkMode(d)
+                            Session.toast("${tr("深色模式")}：${tr(d.label)}")
                         }
                     }
                 }
 
-                Spacer(Modifier.height(12.dp))
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(52.dp)
-                        .background(
-                            if (ui.dynamicColor) Rose.ChipSelected else Rose.CardHigh,
-                            RoundedCornerShape(10.dp)
-                        )
-                        .clickableWithTooltip {
-                            val next = !ui.dynamicColor
-                            Session.setDynamicColor(next)
-                            Session.toast(if (next) "已开启壁纸动态取色" else "已关闭壁纸动态取色")
-                        }
-                        .padding(horizontal = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(tr("动态取色"), color = Rose.Text, fontSize = fsp(14f))
-                        Text(
-                            tr(
-                                if (android.os.Build.VERSION.SDK_INT >= 31) "Android 12+ 从壁纸提取配色"
-                                else "需要 Android 12 及以上"
-                            ),
-                            color = Rose.TextSecond,
-                            fontSize = fsp(11f)
-                        )
-                    }
-                    com.littlecodesauce.ggnext.ui.components.GgSwitch(
-                        checked = ui.dynamicColor,
-                        onCheckedChange = {
-                            Session.setDynamicColor(it)
-                            Session.toast(if (it) "已开启壁纸动态取色" else "已关闭壁纸动态取色")
-                        }
-                    )
-                }
+                Spacer(Modifier.height(GgSpacing.Lg))
+                GgSettingSwitchRow(
+                    title = "动态取色",
+                    subtitle = if (android.os.Build.VERSION.SDK_INT >= 31) "Android 12+ 从壁纸提取配色" else "需要 Android 12 及以上",
+                    checked = ui.dynamicColor,
+                    onCheckedChange = { next ->
+                        Session.setDynamicColor(next)
+                        Session.toast(if (next) "已开启壁纸动态取色" else "已关闭壁纸动态取色")
+                    },
+                    containerBackground = if (ui.dynamicColor) Rose.ChipSelected else Rose.CardHigh,
+                    shape = GgShapes.Md,
+                    horizontalPadding = 14.dp,
+                    verticalPadding = GgSpacing.MdPlus
+                )
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(GgSpacing.Lg))
                 ThemeFontImportCard(ui = ui)
 
-                Spacer(Modifier.height(8.dp))
-                SliderRow("背景透明度", bgOpacityPct.toFloat(), 25f..100f, "$bgOpacityPct%") { pct ->
+                Spacer(Modifier.height(GgSpacing.Md))
+                GgSettingSliderRow("背景透明度", bgOpacityPct.toFloat(), 25f..100f, "$bgOpacityPct%") { pct ->
                     val ratio = (pct.roundToInt().coerceIn(25, 100)) / 100f
                     Session.setSetting("bg_opacity", String.format(java.util.Locale.US, "%.2f", ratio))
                 }
-                SliderRow("页面屏幕占比", panelScalePct.toFloat(), 40f..100f, "$panelScalePct%") { pct ->
+                GgSettingSliderRow("页面屏幕占比", panelScalePct.toFloat(), 40f..100f, "$panelScalePct%") { pct ->
                     val ratio = (pct.roundToInt().coerceIn(40, 100)) / 100f
                     Session.setSetting("panel_scale", String.format(java.util.Locale.US, "%.2f", ratio))
                 }
-                SliderRow("界面字体缩放", m.fontScale, 0.7f..1.3f, "%.2f".format(m.fontScale)) {
+                GgSettingSliderRow("界面字体缩放", m.fontScale, 0.7f..1.3f, "%.2f".format(m.fontScale)) {
                     Session.setSetting("font_scale", "%.2f".format(it))
                 }
-                SliderRow("伪弹窗圆角", m.dialogCorner.toFloat(), 0f..28f, "${m.dialogCorner}dp") {
+                GgSettingSliderRow("伪弹窗圆角", m.dialogCorner.toFloat(), 0f..28f, "${m.dialogCorner}dp") {
                     Session.setSetting("dialog_corner", it.toInt().toString())
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(GgSpacing.Md))
             RoseButton("完成", Modifier.fillMaxWidth(), filled = true) { Session.popSheet() }
         }
     }
@@ -221,9 +192,9 @@ private fun ThemeFontImportCard(ui: Ui) {
     Column(
         Modifier
             .fillMaxWidth()
-            .background(Rose.CardHigh, RoundedCornerShape(10.dp))
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+            .background(Rose.CardHigh, GgShapes.Md)
+            .padding(horizontal = 14.dp, vertical = GgSpacing.MdPlus),
+        verticalArrangement = Arrangement.spacedBy(GgSpacing.Sm)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -235,7 +206,7 @@ private fun ThemeFontImportCard(ui: Ui) {
                 tint = Rose.Primary,
                 modifier = Modifier.size(19.dp)
             )
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(GgSpacing.MdPlus))
             Column(Modifier.weight(1f)) {
                 Text(tr("字体管理"), color = Rose.Text, fontSize = fsp(14f), fontWeight = FontWeight.Medium)
                 Text(
@@ -246,7 +217,7 @@ private fun ThemeFontImportCard(ui: Ui) {
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(GgSpacing.Sm))
             if (hasActivityResultOwner) {
                 SafFontImportButton()
             } else {
@@ -256,7 +227,7 @@ private fun ThemeFontImportCard(ui: Ui) {
                     filled = true
                 ) {
                     Session.openFileBrowser(
-                        initialPath = "/sdcard/Download",
+                        initialPath = AppPaths.DOWNLOAD,
                         selectDirectory = false,
                         returnSheet = Sheet.APPEARANCE,
                         target = FileBrowserTarget.FONT
@@ -304,20 +275,20 @@ private fun OverlayFontItemRow(
             .fillMaxWidth()
             .background(
                 if (selected) Rose.ChipSelected else Rose.Card,
-                RoundedCornerShape(8.dp)
+                GgShapes.Sm
             )
             .border(
-                width = if (selected) 1.dp else 0.6.dp,
+                width = if (selected) GgBorder.Default else GgBorder.Hairline,
                 color = if (selected) Rose.Primary.copy(alpha = 0.65f) else Rose.Divider,
-                shape = RoundedCornerShape(8.dp)
+                shape = GgShapes.Sm
             )
             .clickableWithTooltip(onClick = onSelect)
-            .padding(horizontal = 10.dp, vertical = 7.dp),
+            .padding(horizontal = GgSpacing.MdPlus, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .size(18.dp)
+                .size(GgIconSize.Md)
                 .background(
                     if (selected) Rose.Primary else Color.Transparent,
                     CircleShape
@@ -338,7 +309,7 @@ private fun OverlayFontItemRow(
                 )
             }
         }
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(GgSpacing.MdPlus))
         Column(Modifier.weight(1f)) {
             Text(
                 text = name,
@@ -357,19 +328,13 @@ private fun OverlayFontItemRow(
             )
         }
         if (canDelete) {
-            Box(
-                modifier = Modifier
-                    .size(30.dp)
-                    .clickableWithTooltip(tooltip = tr("删除字体"), onClick = onDelete),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.DeleteOutline,
-                    contentDescription = tr("删除字体"),
-                    tint = Rose.Red,
-                    modifier = Modifier.size(17.dp)
-                )
-            }
+            GgIconActionButton(
+                icon = Icons.Rounded.DeleteOutline,
+                contentDescription = "删除字体",
+                tint = Rose.Red,
+                iconSize = 17.dp,
+                onClick = onDelete
+            )
         }
     }
 }

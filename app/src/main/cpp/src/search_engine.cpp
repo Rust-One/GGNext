@@ -1033,26 +1033,6 @@ EngineErrc SearchEngine::searchBytePattern(
     return EngineErrc::OK;
 }
 
-EngineErrc SearchEngine::searchString(
-    const std::string& utf8Str,
-    bool utf16le,
-    CancellationToken* token,
-    ProgressCallback progress
-) {
-    if (utf8Str.empty()) return EngineErrc::ERR_INVAL;
-    std::vector<uint8_t> pattern;
-    if (!utf16le) {
-        pattern.assign(utf8Str.begin(), utf8Str.end());
-    } else {
-        pattern.reserve(utf8Str.size() * 2);
-        for (unsigned char c : utf8Str) {
-            pattern.push_back(c);
-            pattern.push_back(0x00);
-        }
-    }
-    return searchBytePattern(pattern, {}, token, progress);
-}
-
 // ============================================================================
 // 1b. Not-Equal Search (!= / ≠) + Refinement
 // ============================================================================

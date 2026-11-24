@@ -120,22 +120,6 @@ const VmaRegion* VmaIndex::findRegion(uintptr_t rawAddr, bool is64Bit) const noe
     return nullptr;
 }
 
-bool VmaIndex::isSpanReadable(uintptr_t rawAddr, size_t len, bool is64Bit) const noexcept {
-    if (len == 0 || m_regions.empty()) return false;
-    uintptr_t cur = static_cast<uintptr_t>(ArchPtrPolicy::untag(rawAddr, is64Bit));
-    uintptr_t end = cur + len;
-    if (end < cur) return false; // Overflow
-
-    while (cur < end) {
-        const VmaRegion* r = findRegion(cur, false);
-        if (!r || !r->readable || r->regionFlag == RegionFlag::B) {
-            return false;
-        }
-        cur = r->endAddress;
-    }
-    return true;
-}
-
 uint32_t VmaIndex::classifyPointer(uintptr_t rawPtrVal, bool is64Bit) const noexcept {
     if (!ArchPtrPolicy::isCanonicalUserPtr(rawPtrVal, is64Bit)) {
         return PointerProtMask::NONE;
@@ -439,45 +423,6 @@ std::vector<VmaRegion> MapsParser::parseProcessMaps(int pid, uint32_t filterMask
     std::ostringstream oss;
     oss << ifs.rdbuf();
     return parseMapsContent(oss.str(), filterMask, skipUnreadable);
-}
-
-bool MapsParser::querySmapsForAddress(int pid, uintptr_t targetStart, SmapsDetail& outDetail) {
-    if (pid <= 0) return false;
-    std::string path = "/proc/" + std::to_string(pid) + "/smaps";
-    FILE* fp = std::fopen(path.c_str(), "r");
-    if (!fp) return false;
-
-    outDetail = SmapsDetail{};
-    char line[1024];
-    bool inTargetVma = false;
-
-    while (std::fgets(line, sizeof(line), fp)) {
-        if (std::isxdigit(static_cast<unsigned char>(line[0]))) {
-            char* endPtr = nullptr;
-            unsigned long long start = std::strtoull(line, &endPtr, 16);
-            if (endPtr && *endPtr == '-') {
-                if (inTargetVma) break;
-                if (static_cast<uintptr_t>(start) == targetStart) {
-                    inTargetVma = true;
-                }
-                continue;
-            }
-        }
-
-        if (!inTargetVma) continue;
-
-        size_t val = 0;
-        if (std::sscanf(line, "Rss: %zu kB", &val) == 1) outDetail.rssKB = val;
-        else if (std::sscanf(line, "Pss: %zu kB", &val) == 1) outDetail.pssKB = val;
-        else if (std::sscanf(line, "Shared_Dirty: %zu kB", &val) == 1) outDetail.sharedDirtyKB = val;
-        else if (std::sscanf(line, "Private_Dirty: %zu kB", &val) == 1) outDetail.privateDirtyKB = val;
-        else if (std::sscanf(line, "Anonymous: %zu kB", &val) == 1) outDetail.anonymousKB = val;
-        else if (std::sscanf(line, "Swap: %zu kB", &val) == 1) outDetail.swapKB = val;
-        else if (std::sscanf(line, "KernelPageSize: %zu kB", &val) == 1) outDetail.kernelPageKB = val;
-    }
-
-    std::fclose(fp);
-    return inTargetVma;
 }
 
 } // namespace mem_engine

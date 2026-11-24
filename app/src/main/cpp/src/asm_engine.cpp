@@ -130,27 +130,12 @@ AsmEngine::~AsmEngine() {
     unload();
 }
 
-AsmArch AsmEngine::defaultArchForHost() {
-#if defined(__aarch64__)
-    return AsmArch::ARM64;
-#elif defined(__arm__)
-    return AsmArch::ARM;
-#elif defined(__x86_64__)
-    return AsmArch::X86_64;
-#elif defined(__i386__)
-    return AsmArch::X86;
-#else
-    return AsmArch::ARM64;
-#endif
-}
-
 bool AsmEngine::loadFromDir(const std::string& libDir, std::string* outError) {
     std::lock_guard<std::mutex> lk(mtx_);
     if (ksHandle_) { ::dlclose(ksHandle_); ksHandle_ = nullptr; }
     if (csHandle_) { ::dlclose(csHandle_); csHandle_ = nullptr; }
     fnKsOpen_ = fnKsOption_ = fnKsAsm_ = fnKsFree_ = fnKsClose_ = fnKsErrno_ = fnKsStrerror_ = nullptr;
     fnCsOpen_ = fnCsOption_ = fnCsDisasm_ = fnCsFree_ = fnCsClose_ = nullptr;
-    loadedDir_.clear();
 
     if (libDir.empty()) {
         if (outError) *outError = "库目录路径为空";
@@ -202,9 +187,6 @@ bool AsmEngine::loadFromDir(const std::string& libDir, std::string* outError) {
         }
     }
 
-    if (ksHandle_ || csHandle_) {
-        loadedDir_ = base;
-    }
     if (outError) *outError = errs;
     return ksHandle_ != nullptr && csHandle_ != nullptr;
 }
@@ -215,7 +197,6 @@ void AsmEngine::unload() {
     if (csHandle_) { ::dlclose(csHandle_); csHandle_ = nullptr; }
     fnKsOpen_ = fnKsOption_ = fnKsAsm_ = fnKsFree_ = fnKsClose_ = fnKsErrno_ = fnKsStrerror_ = nullptr;
     fnCsOpen_ = fnCsOption_ = fnCsDisasm_ = fnCsFree_ = fnCsClose_ = nullptr;
-    loadedDir_.clear();
 }
 
 bool AsmEngine::isKeystoneLoaded() const {
@@ -226,11 +207,6 @@ bool AsmEngine::isKeystoneLoaded() const {
 bool AsmEngine::isCapstoneLoaded() const {
     std::lock_guard<std::mutex> lk(mtx_);
     return csHandle_ != nullptr;
-}
-
-std::string AsmEngine::loadedDir() const {
-    std::lock_guard<std::mutex> lk(mtx_);
-    return loadedDir_;
 }
 
 AsmEncodeResult AsmEngine::assemble(AsmArch arch, uint64_t address, const std::string& code) {

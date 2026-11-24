@@ -50,6 +50,7 @@ import com.littlecodesauce.ggnext.core.Ui
 import com.littlecodesauce.ggnext.model.ValueType
 import com.littlecodesauce.ggnext.ui.components.BuiltInKeyboard
 import com.littlecodesauce.ggnext.ui.components.GgCheckBox
+import com.littlecodesauce.ggnext.ui.components.GgDivider
 import com.littlecodesauce.ggnext.ui.components.GgIcons
 import com.littlecodesauce.ggnext.ui.components.GgTextField
 import com.littlecodesauce.ggnext.ui.components.NextSheetCard
@@ -61,6 +62,7 @@ import com.littlecodesauce.ggnext.ui.components.expandExit
 import com.littlecodesauce.ggnext.ui.components.fsp
 import com.littlecodesauce.ggnext.ui.components.monoStyle
 import com.littlecodesauce.ggnext.ui.components.tr
+import com.littlecodesauce.ggnext.ui.theme.GgShapes
 import com.littlecodesauce.ggnext.ui.theme.LocalUiMetrics
 import com.littlecodesauce.ggnext.ui.theme.Motion
 import com.littlecodesauce.ggnext.ui.theme.Rose
@@ -189,11 +191,11 @@ fun SearchSheet(ui: Ui) {
                 Modifier
                     .fillMaxWidth()
                     .height(52.dp)
-                    .background(Rose.CardHigh, RoundedCornerShape(12.dp))
+                    .background(Rose.CardHigh, GgShapes.Lg)
                     .border(
                         width = 1.dp,
                         color = if (activeField == 0) Rose.Primary.copy(alpha = 0.55f) else Rose.Divider,
-                        shape = RoundedCornerShape(12.dp)
+                        shape = GgShapes.Lg
                     )
                     .padding(horizontal = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -327,8 +329,8 @@ fun SearchSheet(ui: Ui) {
                     Box(
                         Modifier
                             .height(30.dp)
-                            .background(Rose.ChipSelected, RoundedCornerShape(8.dp))
-                            .border(1.dp, Rose.Primary.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
+                            .background(Rose.ChipSelected, GgShapes.Sm)
+                            .border(1.dp, Rose.Primary.copy(alpha = 0.45f), GgShapes.Sm)
                             .clickableWithTooltip(tooltip = tr("点击编辑联合搜索距离")) {
                                 val nextExpr = com.littlecodesauce.ggnext.engine.NumberParser.normalizeGroupExpression(
                                     tf.text,
@@ -373,11 +375,11 @@ fun SearchSheet(ui: Ui) {
                             Modifier
                                 .weight(1f)
                                 .height(36.dp)
-                                .background(bgCol, RoundedCornerShape(8.dp))
+                                .background(bgCol, GgShapes.Sm)
                                 .border(
                                     width = if (on) 1.dp else 0.dp,
                                     color = if (on) col else Color.Transparent,
-                                    shape = RoundedCornerShape(8.dp)
+                                    shape = GgShapes.Sm
                                 )
                                 .clickableNoRipple(remember { MutableInteractionSource() }) {
                                     Session.updateSearch { s -> s.copy(type = t) }
@@ -419,11 +421,11 @@ fun SearchSheet(ui: Ui) {
                             Modifier
                                 .weight(1f)
                                 .height(36.dp)
-                                .background(bgCol, RoundedCornerShape(8.dp))
+                                .background(bgCol, GgShapes.Sm)
                                 .border(
                                     width = if (on) 1.dp else 0.dp,
                                     color = if (on) Rose.Primary else Color.Transparent,
-                                    shape = RoundedCornerShape(8.dp)
+                                    shape = GgShapes.Sm
                                 )
                                 .clickableNoRipple(remember { MutableInteractionSource() }) {
                                     Session.updateSearch { it.copy(sign = s) }
@@ -475,11 +477,11 @@ fun SearchSheet(ui: Ui) {
                                     .weight(1f)
                                     .height(36.dp)
                                     .scale(pillScale)
-                                    .background(pillBg, RoundedCornerShape(8.dp))
+                                    .background(pillBg, GgShapes.Sm)
                                     .border(
                                         width = if (isSel) 1.dp else 0.dp,
                                         color = if (isSel) Rose.Primary.copy(alpha = 0.45f) else Color.Transparent,
-                                        shape = RoundedCornerShape(8.dp)
+                                        shape = GgShapes.Sm
                                     )
                                     .clickableWithTooltip(
                                         onPressChange = { pillPressed = it },
@@ -512,11 +514,11 @@ fun SearchSheet(ui: Ui) {
                                 Modifier
                                     .fillMaxWidth()
                                     .height(44.dp)
-                                    .background(Rose.CardHigh, RoundedCornerShape(8.dp))
+                                    .background(Rose.CardHigh, GgShapes.Sm)
                                     .border(
                                         width = 1.dp,
                                         color = if (activeField == 1) Rose.Primary.copy(alpha = 0.55f) else Rose.Divider,
-                                        shape = RoundedCornerShape(8.dp)
+                                        shape = GgShapes.Sm
                                     )
                                     .clickableNoRipple(remember { MutableInteractionSource() }) { activeField = 1 }
                                     .padding(horizontal = 10.dp),
@@ -556,11 +558,11 @@ fun SearchSheet(ui: Ui) {
                                 Modifier
                                     .fillMaxWidth()
                                     .height(44.dp)
-                                    .background(Rose.CardHigh, RoundedCornerShape(8.dp))
+                                    .background(Rose.CardHigh, GgShapes.Sm)
                                     .border(
                                         width = 1.dp,
                                         color = if (activeField == 2) Rose.Primary.copy(alpha = 0.55f) else Rose.Divider,
-                                        shape = RoundedCornerShape(8.dp)
+                                        shape = GgShapes.Sm
                                     )
                                     .clickableNoRipple(remember { MutableInteractionSource() }) { activeField = 2 }
                                     .padding(horizontal = 10.dp),
@@ -604,11 +606,11 @@ fun SearchSheet(ui: Ui) {
                                 Modifier
                                     .fillMaxWidth()
                                     .height(44.dp)
-                                    .background(Rose.CardHigh, RoundedCornerShape(8.dp))
+                                    .background(Rose.CardHigh, GgShapes.Sm)
                                     .border(
                                         width = 1.dp,
                                         color = if (activeField == 3) Rose.Primary.copy(alpha = 0.55f) else Rose.Divider,
-                                        shape = RoundedCornerShape(8.dp)
+                                        shape = GgShapes.Sm
                                     )
                                     .clickableNoRipple(remember { MutableInteractionSource() }) { activeField = 3 }
                                     .padding(horizontal = 10.dp),
@@ -670,11 +672,11 @@ fun SearchSheet(ui: Ui) {
                                 Modifier
                                     .fillMaxWidth()
                                     .height(44.dp)
-                                    .background(Rose.CardHigh, RoundedCornerShape(8.dp))
+                                    .background(Rose.CardHigh, GgShapes.Sm)
                                     .border(
                                         width = 1.dp,
                                         color = if (activeField == 4) Rose.Primary.copy(alpha = 0.55f) else Rose.Divider,
-                                        shape = RoundedCornerShape(8.dp)
+                                        shape = GgShapes.Sm
                                     )
                                     .clickableNoRipple(remember { MutableInteractionSource() }) { activeField = 4 }
                                     .padding(horizontal = 10.dp),
@@ -863,7 +865,7 @@ fun FilterSearchSheet(ui: Ui) {
         Row(
             Modifier
                 .padding(horizontal = 10.dp, vertical = 4.dp)
-                .widthIn(max = if (useSideKeyboard) 880.dp else 560.dp)
+                .widthIn(max = if (useSideKeyboard) (configuration.screenWidthDp * 0.94f).coerceIn(720f, 1400f).dp else (configuration.screenWidthDp * 0.82f).coerceIn(520f, 1180f).dp)
                 .fillMaxWidth()
                 .heightIn(max = maxCardHeight)
                 .clickableNoRipple(remember { MutableInteractionSource() }) {}
@@ -920,7 +922,7 @@ fun FilterSearchSheet(ui: Ui) {
                     }
                 }
 
-                FilterDivider()
+                GgDivider(startInset = 0.dp, endInset = 0.dp, modifier = Modifier.padding(vertical = 4.dp))
 
                 FilterInputCheckRow(
                     checked = st.addrGreatEnabled,
@@ -953,7 +955,7 @@ fun FilterSearchSheet(ui: Ui) {
                     }
                 )
 
-                FilterDivider()
+                GgDivider(startInset = 0.dp, endInset = 0.dp, modifier = Modifier.padding(vertical = 4.dp))
 
                 FilterInputCheckRow(
                     checked = st.valGreatEnabled,
@@ -986,7 +988,7 @@ fun FilterSearchSheet(ui: Ui) {
                     }
                 )
 
-            FilterDivider()
+            GgDivider(startInset = 0.dp, endInset = 0.dp, modifier = Modifier.padding(vertical = 4.dp))
 
             Row(
                 Modifier
@@ -1006,7 +1008,7 @@ fun FilterSearchSheet(ui: Ui) {
                 Row(
                     Modifier
                         .height(36.dp)
-                        .background(if (st.types.isNotEmpty()) Rose.ChipSelected else Rose.CardHigh, RoundedCornerShape(6.dp))
+                        .background(if (st.types.isNotEmpty()) Rose.ChipSelected else Rose.CardHigh, GgShapes.Xs)
                         .clickableWithTooltip {
                             showTypePicker = !showTypePicker
                             st = st.copy(typeEnabled = true)
@@ -1042,7 +1044,7 @@ fun FilterSearchSheet(ui: Ui) {
                                 .height(34.dp)
                                 .background(
                                     if (on) Rose.ChipSelected else Rose.CardHigh,
-                                    RoundedCornerShape(6.dp)
+                                    GgShapes.Xs
                                 )
                                 .clickableWithTooltip {
                                     val nextSet = if (on) st.types - t else st.types + t
@@ -1089,7 +1091,7 @@ fun FilterSearchSheet(ui: Ui) {
                 Box(
                     Modifier
                         .size(width = 44.dp, height = 36.dp)
-                        .background(Rose.CardHigh, RoundedCornerShape(6.dp))
+                        .background(Rose.CardHigh, GgShapes.Xs)
                         .clickableWithTooltip {
                             st = st.copy(
                                 fractionalNotEqual = !st.fractionalNotEqual,
@@ -1140,7 +1142,7 @@ fun FilterSearchSheet(ui: Ui) {
                 Row(
                     Modifier
                         .height(36.dp)
-                        .background(if (st.pointers.isNotEmpty()) Rose.ChipSelected else Rose.CardHigh, RoundedCornerShape(6.dp))
+                        .background(if (st.pointers.isNotEmpty()) Rose.ChipSelected else Rose.CardHigh, GgShapes.Xs)
                         .clickableWithTooltip {
                             showPointerPicker = !showPointerPicker
                             st = st.copy(pointerEnabled = true)
@@ -1183,7 +1185,7 @@ fun FilterSearchSheet(ui: Ui) {
                                 .height(34.dp)
                                 .background(
                                     if (on) Rose.ChipSelected else Rose.CardHigh,
-                                    RoundedCornerShape(6.dp)
+                                    GgShapes.Xs
                                 )
                                 .clickableWithTooltip {
                                     val nextSet = if (on) st.pointers - code else st.pointers + code
@@ -1197,7 +1199,7 @@ fun FilterSearchSheet(ui: Ui) {
                 }
             }
 
-            FilterDivider()
+            GgDivider(startInset = 0.dp, endInset = 0.dp, modifier = Modifier.padding(vertical = 4.dp))
 
             FormatCheckItem("十六进制格式 (little-endian)", st.formatHex, Rose.Text) {
                 st = st.copy(formatHex = it)
@@ -1279,17 +1281,6 @@ fun FilterSearchSheet(ui: Ui) {
             }
         }
     }
-}
-
-@Composable
-private fun FilterDivider() {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .height(1.dp)
-            .background(Rose.Divider)
-    )
 }
 
 @Composable
@@ -1499,7 +1490,7 @@ fun FuzzySearchSheet(ui: Ui) {
         Row(
             Modifier
                 .padding(horizontal = 10.dp, vertical = 4.dp)
-                .widthIn(max = if (useSideKeyboard) 880.dp else 560.dp)
+                .widthIn(max = if (useSideKeyboard) (configuration.screenWidthDp * 0.94f).coerceIn(720f, 1400f).dp else (configuration.screenWidthDp * 0.82f).coerceIn(520f, 1180f).dp)
                 .fillMaxWidth()
                 .heightIn(max = maxCardHeight)
                 .clickableNoRipple(remember { MutableInteractionSource() }) {}
@@ -1557,8 +1548,8 @@ fun FuzzySearchSheet(ui: Ui) {
                 Modifier
                     .fillMaxWidth()
                     .height(42.dp)
-                    .background(Rose.CardHigh, RoundedCornerShape(9.dp))
-                    .border(1.dp, Rose.Divider, RoundedCornerShape(9.dp))
+                    .background(Rose.CardHigh, GgShapes.Sm)
+                    .border(1.dp, Rose.Divider, GgShapes.Sm)
                     .clickableWithTooltip { showTypeList = !showTypeList }
                     .padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -1607,11 +1598,11 @@ fun FuzzySearchSheet(ui: Ui) {
                             Modifier
                                 .weight(1f)
                                 .height(36.dp)
-                                .background(bgCol, RoundedCornerShape(8.dp))
+                                .background(bgCol, GgShapes.Sm)
                                 .border(
                                     width = if (on) 1.dp else 0.dp,
                                     color = if (on) col else Color.Transparent,
-                                    shape = RoundedCornerShape(8.dp)
+                                    shape = GgShapes.Sm
                                 )
                                 .clickableWithTooltip {
                                     Session.updateFuzzy { it.copy(type = t) }
@@ -1660,11 +1651,11 @@ fun FuzzySearchSheet(ui: Ui) {
                                     .weight(1f)
                                     .height(36.dp)
                                     .scale(pillScale)
-                                    .background(pillBg, RoundedCornerShape(8.dp))
+                                    .background(pillBg, GgShapes.Sm)
                                     .border(
                                         width = if (isSel) 1.dp else 0.dp,
                                         color = if (isSel) Rose.Primary.copy(alpha = 0.45f) else Color.Transparent,
-                                        shape = RoundedCornerShape(8.dp)
+                                        shape = GgShapes.Sm
                                     )
                                     .clickableWithTooltip(
                                         onPressChange = { pillPressed = it },
@@ -1696,11 +1687,11 @@ fun FuzzySearchSheet(ui: Ui) {
                                 Modifier
                                     .fillMaxWidth()
                                     .height(44.dp)
-                                    .background(Rose.CardHigh, RoundedCornerShape(8.dp))
+                                    .background(Rose.CardHigh, GgShapes.Sm)
                                     .border(
                                         width = 1.dp,
                                         color = if (activeField == 1) Rose.Primary.copy(alpha = 0.55f) else Rose.Divider,
-                                        shape = RoundedCornerShape(8.dp)
+                                        shape = GgShapes.Sm
                                     )
                                     .clickableNoRipple(remember { MutableInteractionSource() }) { activeField = 1 }
                                     .padding(horizontal = 10.dp),
@@ -1728,11 +1719,11 @@ fun FuzzySearchSheet(ui: Ui) {
                                 Modifier
                                     .fillMaxWidth()
                                     .height(44.dp)
-                                    .background(Rose.CardHigh, RoundedCornerShape(8.dp))
+                                    .background(Rose.CardHigh, GgShapes.Sm)
                                     .border(
                                         width = 1.dp,
                                         color = if (activeField == 2) Rose.Primary.copy(alpha = 0.55f) else Rose.Divider,
-                                        shape = RoundedCornerShape(8.dp)
+                                        shape = GgShapes.Sm
                                     )
                                     .clickableNoRipple(remember { MutableInteractionSource() }) { activeField = 2 }
                                     .padding(horizontal = 10.dp),
@@ -1764,11 +1755,11 @@ fun FuzzySearchSheet(ui: Ui) {
                                 Modifier
                                     .fillMaxWidth()
                                     .height(44.dp)
-                                    .background(Rose.CardHigh, RoundedCornerShape(8.dp))
+                                    .background(Rose.CardHigh, GgShapes.Sm)
                                     .border(
                                         width = 1.dp,
                                         color = if (activeField == 3) Rose.Primary.copy(alpha = 0.55f) else Rose.Divider,
-                                        shape = RoundedCornerShape(8.dp)
+                                        shape = GgShapes.Sm
                                     )
                                     .clickableNoRipple(remember { MutableInteractionSource() }) { activeField = 3 }
                                     .padding(horizontal = 10.dp),
@@ -1830,11 +1821,11 @@ fun FuzzySearchSheet(ui: Ui) {
                                 Modifier
                                     .fillMaxWidth()
                                     .height(44.dp)
-                                    .background(Rose.CardHigh, RoundedCornerShape(8.dp))
+                                    .background(Rose.CardHigh, GgShapes.Sm)
                                     .border(
                                         width = 1.dp,
                                         color = if (activeField == 4) Rose.Primary.copy(alpha = 0.55f) else Rose.Divider,
-                                        shape = RoundedCornerShape(8.dp)
+                                        shape = GgShapes.Sm
                                     )
                                     .clickableNoRipple(remember { MutableInteractionSource() }) { activeField = 4 }
                                     .padding(horizontal = 10.dp),
@@ -2012,7 +2003,7 @@ fun FuzzySearchSheet(ui: Ui) {
                                 Modifier
                                     .weight(1f)
                                     .height(32.dp)
-                                    .background(bgCol, RoundedCornerShape(6.dp))
+                                    .background(bgCol, GgShapes.Xs)
                                     .clickableWithTooltip {
                                         Session.updateFuzzy { it.copy(type = t) }
                                     },
@@ -2152,8 +2143,8 @@ private fun FuzzyOptionButton(
         modifier
             .height(height.dp)
             .scale(scale)
-            .background(bg, RoundedCornerShape(8.dp))
-            .border(1.dp, Rose.Divider, RoundedCornerShape(8.dp))
+            .background(bg, GgShapes.Sm)
+            .border(1.dp, Rose.Divider, GgShapes.Sm)
             .clickableWithTooltip(onPressChange = { pressed = it }, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -2219,11 +2210,11 @@ fun MaskSearchSheet(ui: Ui) {
                 Modifier
                     .fillMaxWidth()
                     .height(48.dp)
-                    .background(Rose.CardHigh, RoundedCornerShape(10.dp))
+                    .background(Rose.CardHigh, GgShapes.Md)
                     .border(
                         width = 1.dp,
                         color = if (!focusMask) Rose.Primary.copy(alpha = 0.55f) else Rose.Divider,
-                        shape = RoundedCornerShape(10.dp)
+                        shape = GgShapes.Md
                     )
                     .clickableNoRipple(remember { MutableInteractionSource() }) { focusMask = false }
                     .padding(horizontal = 12.dp),
@@ -2264,11 +2255,11 @@ fun MaskSearchSheet(ui: Ui) {
                 Modifier
                     .fillMaxWidth()
                     .height(48.dp)
-                    .background(Rose.CardHigh, RoundedCornerShape(10.dp))
+                    .background(Rose.CardHigh, GgShapes.Md)
                     .border(
                         width = 1.dp,
                         color = if (focusMask) Rose.Primary.copy(alpha = 0.55f) else Rose.Divider,
-                        shape = RoundedCornerShape(10.dp)
+                        shape = GgShapes.Md
                     )
                     .clickableNoRipple(remember { MutableInteractionSource() }) { focusMask = true }
                     .padding(horizontal = 12.dp),
@@ -2363,7 +2354,7 @@ fun PointerSearchSheet(ui: Ui) {
                 Modifier
                     .fillMaxWidth()
                     .height(48.dp)
-                    .background(Rose.CardHigh, RoundedCornerShape(10.dp))
+                    .background(Rose.CardHigh, GgShapes.Md)
                     .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -2388,7 +2379,7 @@ fun PointerSearchSheet(ui: Ui) {
                 Modifier
                     .fillMaxWidth()
                     .height(48.dp)
-                    .background(Rose.CardHigh, RoundedCornerShape(10.dp))
+                    .background(Rose.CardHigh, GgShapes.Md)
                     .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -2409,7 +2400,7 @@ fun PointerSearchSheet(ui: Ui) {
                 )
                 Box(
                     Modifier
-                        .background(if (ui.search.offsetHex) Rose.ChipSelected else Rose.Chip, RoundedCornerShape(6.dp))
+                        .background(if (ui.search.offsetHex) Rose.ChipSelected else Rose.Chip, GgShapes.Xs)
                         .clickableWithTooltip {
                             Session.updateSearch { s -> s.copy(offsetHex = !s.offsetHex) }
                         }
@@ -2426,7 +2417,7 @@ fun PointerSearchSheet(ui: Ui) {
                 Modifier
                     .fillMaxWidth()
                     .height(48.dp)
-                    .background(Rose.CardHigh, RoundedCornerShape(10.dp))
+                    .background(Rose.CardHigh, GgShapes.Md)
                     .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -2444,12 +2435,12 @@ fun PointerSearchSheet(ui: Ui) {
                             .height(34.dp)
                             .background(
                                 if (isSel) col.copy(alpha = if (Rose.IsDark) 0.22f else 0.18f) else Rose.Chip,
-                                RoundedCornerShape(8.dp)
+                                GgShapes.Sm
                             )
                             .border(
                                 width = if (isSel) 1.5.dp else 0.dp,
                                 color = if (isSel) col else Color.Transparent,
-                                shape = RoundedCornerShape(8.dp)
+                                shape = GgShapes.Sm
                             )
                             .clickableWithTooltip {
                                 Session.updateSearch { s -> s.copy(pointerType = vType) }

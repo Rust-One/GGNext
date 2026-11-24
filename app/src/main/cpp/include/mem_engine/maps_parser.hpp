@@ -47,16 +47,6 @@ struct VmaRegion {
     }
 };
 
-struct SmapsDetail {
-    size_t rssKB          = 0;
-    size_t pssKB          = 0;
-    size_t sharedDirtyKB  = 0;
-    size_t privateDirtyKB = 0;
-    size_t anonymousKB    = 0;
-    size_t swapKB         = 0;
-    size_t kernelPageKB   = 4;
-};
-
 // ============================================================================
 // VmaIndex: Fast O(1) MRU + O(log N) Binary-Searched Virtual Memory Index
 // Inspired by KittyMemoryEx (KittyPtrValidator) & frida-gum
@@ -80,9 +70,6 @@ public:
 
     // O(1) MRU cache hit + O(log N) std::lower_bound lookup
     const VmaRegion* findRegion(uintptr_t rawAddr, bool is64Bit = true) const noexcept;
-
-    // Multi-VMA boundary traversal (handles buffers crossing adjacent readable VMAs)
-    bool isSpanReadable(uintptr_t rawAddr, size_t len, bool is64Bit = true) const noexcept;
 
     // Returns PointerProtMask (WX=1, X=2, RO=8, W=16, or NONE=0 if invalid/unmapped/Bad)
     uint32_t classifyPointer(uintptr_t rawPtrVal, bool is64Bit = true) const noexcept;
@@ -108,9 +95,6 @@ public:
 
     // Classify a single VMA entry given its attributes and the preceding VMA's pathname
     static uint32_t classifyVma(const VmaRegion& vma, const std::string& prevFileBackedPath);
-
-    // On-demand /proc/[pid]/smaps query for a specific virtual address to disambiguate residency & anon/PSS
-    static bool querySmapsForAddress(int pid, uintptr_t targetStart, SmapsDetail& outDetail);
 };
 
 } // namespace mem_engine

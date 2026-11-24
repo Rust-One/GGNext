@@ -45,6 +45,8 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.littlecodesauce.ggnext.ui.theme.GgBorder
+import com.littlecodesauce.ggnext.ui.theme.GgShapes
 import com.littlecodesauce.ggnext.ui.theme.LocalUiMetrics
 import com.littlecodesauce.ggnext.ui.theme.Motion
 import com.littlecodesauce.ggnext.ui.theme.Rose
@@ -89,7 +91,7 @@ fun BuiltInKeyboard(
             Modifier
                 .then(if (fillAvailableHeight) Modifier.fillMaxSize() else Modifier.fillMaxWidth())
                 .background(Rose.CardHigh, RoundedCornerShape(corner))
-                .border(1.dp, Rose.Divider, RoundedCornerShape(corner))
+                .border(GgBorder.Default, Rose.Divider, RoundedCornerShape(corner))
                 .padding(gap)
         ) {
         // Bug 7 优化：点击历史按钮直接在键盘上方展开快捷历史列表，不关闭当前正在编辑或搜索的界面
@@ -135,8 +137,8 @@ fun BuiltInKeyboard(
                             Box(
                                 Modifier
                                     .height(28.dp)
-                                    .background(Rose.Card, RoundedCornerShape(6.dp))
-                                    .border(0.8.dp, Rose.Divider, RoundedCornerShape(6.dp))
+                                    .background(Rose.Card, GgShapes.Xs)
+                                    .border(GgBorder.Thin, Rose.Divider, GgShapes.Xs)
                                     .clickable {
                                         onValueChange(TextFieldValue(histItem, TextRange(histItem.length)))
                                         showHistoryTray = false
@@ -321,7 +323,7 @@ private fun CharKey(
         modifier
             .then(if (height == Dp.Unspecified) Modifier.fillMaxHeight() else Modifier.height(height))
             .scale(scale)
-            .background(bg, RoundedCornerShape(9.dp))
+            .background(bg, GgShapes.Sm)
             .clickableWithTooltip(
                 onPressChange = { pressed = it },
                 onClick = onClick
@@ -355,7 +357,7 @@ private fun IconKey(
         modifier
             .then(if (height == Dp.Unspecified) Modifier.fillMaxHeight() else Modifier.height(height))
             .scale(scale)
-            .background(bg, RoundedCornerShape(9.dp))
+            .background(bg, GgShapes.Sm)
             .clickableWithTooltip(
                 onPressChange = { pressed = it },
                 onClick = onClick

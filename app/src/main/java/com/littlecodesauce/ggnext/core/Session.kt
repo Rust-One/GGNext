@@ -2,6 +2,7 @@ package com.littlecodesauce.ggnext.core
 
 import android.app.Application
 import com.littlecodesauce.ggnext.data.AppLog
+import com.littlecodesauce.ggnext.data.AppPaths
 import com.littlecodesauce.ggnext.data.HistoryPersistence
 import com.littlecodesauce.ggnext.data.LocalBlobStore
 import com.littlecodesauce.ggnext.data.ProcessScanner
@@ -54,13 +55,14 @@ import java.io.File
 import java.util.Locale
 import kotlin.math.abs
 
-/** 五个导航页 */
+/** 六个导航页（含 AI 对话） */
 enum class NextTab(val label: String) {
     SETTINGS("设置"),
     SEARCH_LIST("搜索列表"),
     SAVED_LIST("保存列表"),
     MEMORY("内存"),
-    DEBUG("调试")
+    DEBUG("调试"),
+    AI("对话")
 }
 
 /** 主页底部三个导航页（主页 / 扩展 / 设置） */
@@ -134,13 +136,11 @@ enum class FileBrowserTarget {
 }
 
 data class FileBrowserConfig(
-    val currentDir: String = "/sdcard/Download",
+    val currentDir: String = AppPaths.DOWNLOAD,
     val selectDirectory: Boolean = false,
     val returnSheet: Sheet = Sheet.SCRIPT,
     val target: FileBrowserTarget = FileBrowserTarget.SCRIPT
 )
-
-enum class SearchMode { EXACT, FUZZY, MASK, POINTER, DIFF, RANGE }
 
 /** 独立高频搜索进度状态（脱离 Ui，避免每 45ms 触发全界面重组） */
 data class SearchProgressUi(
@@ -276,10 +276,10 @@ data class Ui(
     val fuzzy: FuzzyState = FuzzyState(),
     val filter: FilterState = FilterState(),
 
-    val scriptPath: String = "/sdcard/Download/script.lua",
+    val scriptPath: String = AppPaths.SCRIPT_FILE,
     val scriptHistory: List<ScriptHistoryEntry> = HistoryPersistence.DEFAULT_SCRIPT_HISTORY,
-    val fileManagerPath: String = "/sdcard/GGNext/saved_list.txt",
-    val dumpDirPath: String = "/sdcard/GGNext/dump",
+    val fileManagerPath: String = AppPaths.FILE_MANAGER_FILE,
+    val dumpDirPath: String = AppPaths.DUMP_DIR,
     val fileBrowser: FileBrowserConfig = FileBrowserConfig(),
 
     val valueMask: Int = SettingsSpecs.DEFAULT_FORMAT_MASK,
@@ -337,7 +337,7 @@ data class Ui(
             NextTab.MEMORY -> memorySelectedCount
             NextTab.SEARCH_LIST -> searchSelectedCount
             NextTab.DEBUG -> selectedBpIds.size
-            NextTab.SETTINGS -> 0
+            NextTab.SETTINGS, NextTab.AI -> 0
         }
 
     fun isSearchItemSelected(item: MemoryItem): Boolean =
@@ -358,7 +358,7 @@ data class Ui(
                 NextTab.SAVED_LIST -> DEFAULT_TOOLS_SAVED
                 NextTab.MEMORY -> DEFAULT_TOOLS_MEMORY
                 NextTab.DEBUG -> DEFAULT_TOOLS_DEBUG
-                NextTab.SETTINGS -> emptyList()
+                NextTab.SETTINGS, NextTab.AI -> emptyList()
             }
             val pinned = currentPinnedTools.toSet()
             return base.filter { it !in pinned }
@@ -611,6 +611,10 @@ object Session {
 
     fun init(app: Application) {
         appContext = app
+        // 统一配置路径：Download/GGNext（日志、脚本、dump、导出都在此根目录）
+        AppPaths.ensureDirs()
+        // 尽早启用文件持久化日志与全局崩溃捕获（幂等）
+        AppLog.init(app)
         blobStoreDir = File(app.filesDir, "ggnext_store")
         engine.setOnTargetProcessDead { handleTargetProcessDead() }
         if (repo != null) return
@@ -1031,9 +1035,9 @@ object Session {
         target: FileBrowserTarget
     ) {
         val dir = initialPath.trim().let { p ->
-            if (p.isEmpty()) "/sdcard/Download"
+            if (p.isEmpty()) AppPaths.DOWNLOAD
             else if (selectDirectory) p
-            else p.substringBeforeLast('/', "/sdcard/Download").ifEmpty { "/sdcard" }
+            else p.substringBeforeLast('/', AppPaths.DOWNLOAD).ifEmpty { AppPaths.DOWNLOAD }
         }
         _ui.update { st ->
             val baseStack = if (st.sheetStack.lastOrNull() == returnSheet) {
@@ -1697,6 +1701,8 @@ object Session {
                         var changedAny = false
                         val updatedRes = ArrayList<MemoryItem>(s.results.size)
                         for (item in s.results) {
+                            // Bug 修复：手动编辑过的值不被后台实时刷新覆盖，避免改成 9999 后又变回旧值
+                            if (item.manuallyEdited) { updatedRes.add(item); continue }
                             val freshVal = liveResultMap[item.address]
                             if (freshVal != null && freshVal != item.value) {
                                 changedAny = true
@@ -1712,6 +1718,7 @@ object Session {
                             } else if (s.rawResults.size <= 5000) {
                                 val updatedRaw = ArrayList<MemoryItem>(s.rawResults.size)
                                 for (r in s.rawResults) {
+                                    if (r.manuallyEdited) { updatedRaw.add(r); continue }
                                     val freshVal = liveResultMap[r.address]
                                     if (freshVal != null && freshVal != r.value) {
                                         updatedRaw.add(r.copy(value = freshVal, pointer = engine.classifyPointer(freshVal)))
@@ -1729,7 +1736,7 @@ object Session {
                         var savedChanged = false
                         val updatedSaved = ArrayList<MemoryItem>(s.saved.size)
                         for (item in s.saved) {
-                            if (item.freeze && item.freezeType == 0) {
+                            if ((item.freeze && item.freezeType == 0) || item.manuallyEdited) {
                                 updatedSaved.add(item)
                             } else {
                                 val freshVal = liveSavedMap[item.address]
@@ -1750,6 +1757,7 @@ object Session {
                         val updatedMem = ArrayList<MemoryItem>(memCount)
                         for (r in 0 until memCount) {
                             val oldItem = s.memoryRows[r]
+                            if (oldItem.manuallyEdited) { updatedMem.add(oldItem); continue }
                             val off = r * 4
                             val v = if (off + 4 <= memBlock.size) {
                                 (memBlock[off].toLong() and 0xFF) or
@@ -2461,7 +2469,7 @@ object Session {
                 NextTab.SAVED_LIST -> s.copy(savedSelection = s.savedSelection.toggle(SelectionState.itemKey(item)))
                 NextTab.MEMORY -> s.copy(memorySelection = s.memorySelection.toggle(SelectionState.memoryRowKey(item)))
                 NextTab.SEARCH_LIST -> s.copy(searchSelection = s.searchSelection.toggle(SelectionState.itemKey(item)))
-                NextTab.SETTINGS, NextTab.DEBUG -> s
+                NextTab.SETTINGS, NextTab.DEBUG, NextTab.AI -> s
             }
         }
     }
@@ -2473,7 +2481,7 @@ object Session {
                 NextTab.MEMORY -> if (s.memoryRows.isEmpty()) s else s.copy(memorySelection = s.memorySelection.selectAll())
                 NextTab.SEARCH_LIST -> if (s.results.isEmpty()) s else s.copy(searchSelection = s.searchSelection.selectAll())
                 NextTab.DEBUG -> s.copy(selectedBpIds = s.breakpoints.map { it.id }.toSet())
-                NextTab.SETTINGS -> s
+                NextTab.SETTINGS, NextTab.AI -> s
             }
         }
     }
@@ -2488,7 +2496,7 @@ object Session {
                     val all = s.breakpoints.map { it.id }.toSet()
                     s.copy(selectedBpIds = all - s.selectedBpIds)
                 }
-                NextTab.SETTINGS -> s
+                NextTab.SETTINGS, NextTab.AI -> s
             }
         }
     }
@@ -2500,7 +2508,7 @@ object Session {
                 NextTab.MEMORY -> s.copy(memorySelection = SelectionState.EMPTY)
                 NextTab.SEARCH_LIST -> s.copy(searchSelection = SelectionState.EMPTY)
                 NextTab.DEBUG -> s.copy(selectedBpIds = emptySet())
-                NextTab.SETTINGS -> s
+                NextTab.SETTINGS, NextTab.AI -> s
             }
         }
     }
@@ -2511,7 +2519,7 @@ object Session {
             NextTab.SAVED_LIST -> st.savedSelection.resolveSelected(st.saved, SelectionState::itemKey)
             NextTab.MEMORY -> st.memorySelection.resolveSelected(st.memoryRows, SelectionState::memoryRowKey)
             NextTab.SEARCH_LIST -> st.searchSelection.resolveSelected(st.results, SelectionState::itemKey)
-            NextTab.SETTINGS, NextTab.DEBUG -> emptyList()
+            NextTab.SETTINGS, NextTab.DEBUG, NextTab.AI -> emptyList()
         }
     }
 
@@ -2527,7 +2535,7 @@ object Session {
             NextTab.SAVED_LIST -> st.saved
             NextTab.MEMORY -> st.memoryRows
             NextTab.SEARCH_LIST -> st.results
-            NextTab.SETTINGS, NextTab.DEBUG -> emptyList()
+            NextTab.SETTINGS, NextTab.DEBUG, NextTab.AI -> emptyList()
         }
     }
 
@@ -2932,9 +2940,10 @@ object Session {
                         } else {
                             bytes.getOrNull(idx)?.toLong()?.and(0xFF) ?: 0L
                         }
-                        engine.write(item.address, itemSize, bValue)
+                        val writeOk = engine.write(item.address, itemSize, bValue)
+                        val effectiveVal = if (writeOk) bValue else engine.read(item.address, itemSize)
                         map[item.address] = item.copy(
-                            value = bValue,
+                            value = effectiveVal,
                             flags = cleanType,
                             freeze = if (freeze) true else item.freeze,
                             freezeType = if (freeze) freezeType else item.freezeType,
@@ -2951,9 +2960,10 @@ object Session {
                         .mapNotNull { tok -> tok.toIntOrNull(16)?.toByte() }
                     targets.forEachIndexed { idx, item ->
                         val v = hexTokens.getOrNull(idx)?.toLong()?.and(0xFF) ?: item.value
-                        engine.write(item.address, itemSize, v)
+                        val writeOk = engine.write(item.address, itemSize, v)
+                        val effectiveVal = if (writeOk) v else engine.read(item.address, itemSize)
                         map[item.address] = item.copy(
-                            value = v,
+                            value = effectiveVal,
                             flags = cleanType,
                             freeze = if (freeze) true else item.freeze,
                             freezeType = if (freeze) freezeType else item.freezeType,
@@ -2993,9 +3003,11 @@ object Session {
                             }
                         }
                         val encodedBits = reencodeIfEncrypted(item, plainNextBits)
-                        engine.write(item.address, itemSize, encodedBits)
+                        val writeOk = engine.write(item.address, itemSize, encodedBits)
+                        // Bug 修复：写入失败时以内存实际值为准，避免 UI 显示目标值随后被刷新覆盖
+                        val effectiveBits = if (writeOk) encodedBits else engine.read(item.address, itemSize)
                         val edited = item.copy(
-                            value = encodedBits,
+                            value = effectiveBits,
                             flags = cleanType,
                             freeze = if (freeze) true else item.freeze,
                             freezeType = if (freeze) freezeType else item.freezeType,
@@ -3351,11 +3363,6 @@ object Session {
         return rows to disasm
     }
 
-    private fun readMemoryPageRows(pageBase: Long): List<MemoryItem> {
-        val block = engine.readBlock(pageBase, MEMORY_PAGE_BYTES)
-        return buildMemoryPageRows(pageBase, block, MEMORY_PAGE_ROWS)
-    }
-
     private fun buildMemoryPageRows(pageBase: Long, block: ByteArray, count: Int): List<MemoryItem> {
         val candidatePtrs = LongArray(count) { r ->
             val off = (r and -2) * 4
@@ -3483,7 +3490,7 @@ object Session {
             toast("结束地址必须大于起始地址")
             return
         }
-        val cleanDir = dirPath.trim().trimEnd('/').ifEmpty { "/sdcard/GGNext/dump" }
+        val cleanDir = dirPath.trim().trimEnd('/').ifEmpty { AppPaths.DUMP_DIR }
         setSetting("dump_dir_path", cleanDir)
         val fileName = "${java.lang.Long.toHexString(startAddr).uppercase()}-${java.lang.Long.toHexString(endAddr).uppercase()}.bin"
         val fullPath = "$cleanDir/$fileName"
@@ -3579,7 +3586,7 @@ object Session {
         NextTab.SAVED_LIST -> DEFAULT_TOOLS_SAVED
         NextTab.MEMORY -> DEFAULT_TOOLS_MEMORY
         NextTab.DEBUG -> DEFAULT_TOOLS_DEBUG
-        NextTab.SETTINGS -> emptyList()
+        NextTab.SETTINGS, NextTab.AI -> emptyList()
     }
 
     fun moveTool(tab: NextTab, from: Int, to: Int) {
@@ -3607,10 +3614,10 @@ object Session {
             NextTab.SEARCH_LIST -> DEFAULT_TOOLS_SEARCH
             NextTab.SAVED_LIST -> DEFAULT_TOOLS_SAVED
             NextTab.MEMORY -> DEFAULT_TOOLS_MEMORY
-            NextTab.DEBUG -> DEFAULT_TOOLS_DEBUG
-            NextTab.SETTINGS -> emptyList()
-        }
-        _ui.update {
+        NextTab.DEBUG -> DEFAULT_TOOLS_DEBUG
+        NextTab.SETTINGS, NextTab.AI -> emptyList()
+    }
+    _ui.update {
             it.copy(
                 tools = it.tools + (tab to def),
                 pinnedTools = it.pinnedTools + (tab to DEFAULT_PINNED_TOOLS)
@@ -4046,6 +4053,176 @@ object Session {
                     break
                 }
             }
+        }
+    }
+
+    // ============ MCP 服务桥接（复用真实引擎实例与状态同步） ============
+
+    internal fun engineForMcp(): MemoryEngine = engine
+
+    internal fun attachFromMcpSync(proc: TargetProcess): Boolean {
+        val st = _ui.value
+        AppLog.i("MCP", "attach_process 开始 pid=${proc.pid} label=${proc.label} pkg=${proc.packageName} x64=${proc.x64}")
+        // v0.9.1 崩溃修复：切换目标前必须先停掉旧进程上的断点/扫描/冻结线程。
+        // 否则 perf/ptrace 断点线程仍指向旧 PID，attach 切换 native backend 时会访问失效句柄导致 SIGSEGV。
+        try {
+            runCatching { engine.cancelScan() }
+            runCatching { engine.bpStopAll() }
+            runCatching { engine.clearNativeFreezes() }
+            bpPollingJob?.cancel()
+            bpPollingJob = null
+            hasFuzzySession = false
+
+            val ok = engine.attach(
+                targetPid = proc.pid,
+                targetX64 = proc.x64,
+                isRootMode = (st.workMode == WorkMode.ROOT),
+                context = appContext
+            )
+            if (ok) {
+                val freshRegions = engine.regions()
+                _ui.update { cur ->
+                    cur.copy(
+                        target = proc.copy(x64 = engine.x64),
+                        attachedOk = true,
+                        processPaused = false,
+                        results = emptyList(),
+                        rawResults = emptyList(),
+                        totalCount = 0L,
+                        regions = aggregate(freshRegions),
+                        selectedRegions = resolveRegionsForPackage(cur.settings, proc.packageName),
+                        searchSelection = SelectionState.EMPTY,
+                        memorySelection = SelectionState.EMPTY,
+                        memoryRows = emptyList(),
+                        breakpoints = emptyList(),
+                        selectedBpIds = emptySet(),
+                        fuzzy = cur.fuzzy.copy(active = false)
+                    )
+                }
+                AppLog.i("MCP", "attach_process 成功 pid=${proc.pid} regions=${freshRegions.size}")
+            } else {
+                AppLog.w("MCP", "attach_process 失败 pid=${proc.pid} err=${engine.lastAttachError}")
+            }
+            return ok
+        } catch (t: Throwable) {
+            AppLog.e("MCP", "attach_process 异常 pid=${proc.pid}", t)
+            return false
+        }
+    }
+
+    internal fun syncSearchResultsFromMcp(items: List<MemoryItem>, totalCount: Long) {
+        _ui.update { cur ->
+            cur.copy(
+                results = items,
+                totalCount = totalCount
+            )
+        }
+    }
+
+    internal fun setSelectedRegionsFromMcp(regions: Set<String>) {
+        if (regions.isEmpty()) return
+        _ui.update { it.copy(selectedRegions = regions) }
+        persistSelectedRegions(regions, _ui.value.target?.packageName)
+    }
+
+    internal fun removeSearchAddressesFromMcp(addresses: Set<Long>): Int {
+        if (addresses.isEmpty()) return 0
+        engine.markRemoved(addresses)
+        var removedCount = 0
+        _ui.update { cur ->
+            val filtered = cur.results.filterNot { it.address in addresses }
+            removedCount = cur.results.size - filtered.size
+            val nextTotal = (cur.totalCount - removedCount.toLong()).coerceAtLeast(filtered.size.toLong())
+            cur.copy(results = filtered, totalCount = nextTotal)
+        }
+        return removedCount
+    }
+
+    internal fun saveItemsFromMcp(items: List<MemoryItem>): Int {
+        if (items.isEmpty()) return 0
+        var added = 0
+        _ui.update { cur ->
+            val existingMap = cur.saved.associateBy { it.address to (it.flags and 0x7F) }.toMutableMap()
+            for (item in items) {
+                val key = item.address to (item.flags and 0x7F)
+                if (!existingMap.containsKey(key)) added++
+                existingMap[key] = item
+            }
+            cur.copy(saved = existingMap.values.toList())
+        }
+        persistSavedListAsync(_ui.value.saved)
+        return added
+    }
+
+    internal fun removeSavedAddressesFromMcp(addresses: Set<Long>): Int {
+        if (addresses.isEmpty()) return 0
+        addresses.forEach { addr -> engine.setFreeze(addr, ValueType.DWORD, 0L, enabled = false) }
+        var removed = 0
+        _ui.update { cur ->
+            val filtered = cur.saved.filterNot { it.address in addresses }
+            removed = cur.saved.size - filtered.size
+            cur.copy(saved = filtered)
+        }
+        persistSavedListAsync(_ui.value.saved)
+        return removed
+    }
+
+    internal fun updateSavedNoteFromMcp(address: Long, note: String): Boolean {
+        var found = false
+        _ui.update { cur ->
+            val next = cur.saved.map { item ->
+                if (item.address == address) {
+                    found = true
+                    item.copy(name = note, note = note)
+                } else item
+            }
+            cur.copy(saved = next)
+        }
+        if (found) persistSavedListAsync(_ui.value.saved)
+        return found
+    }
+
+    internal fun clearSavedFromMcp(): Int {
+        val count = _ui.value.saved.size
+        engine.clearNativeFreezes()
+        _ui.update { it.copy(saved = emptyList()) }
+        persistSavedListAsync(emptyList())
+        return count
+    }
+
+    internal fun controlProcessFromMcp(action: String): Pair<Boolean, String> {
+        val st = _ui.value
+        val pid = engine.pid
+        if (!engine.attachedOk || pid <= 0) return false to "No target process attached"
+        val asRoot = (st.workMode == WorkMode.ROOT && Shell.hasRoot())
+        return when (action) {
+            "pause" -> {
+                engine.setFreezePaused(true)
+                val res = Shell.runAs("kill -STOP $pid", asRoot = asRoot)
+                if (res.exitCode == 0) {
+                    _ui.update { it.copy(processPaused = true) }
+                    true to "Process $pid paused"
+                } else false to res.out.joinToString(" ").ifBlank { "Failed to pause process $pid" }
+            }
+            "resume" -> {
+                val res = Shell.runAs("kill -CONT $pid", asRoot = asRoot)
+                engine.setFreezePaused(false)
+                if (res.exitCode == 0) {
+                    _ui.update { it.copy(processPaused = false) }
+                    true to "Process $pid resumed"
+                } else false to res.out.joinToString(" ").ifBlank { "Failed to resume process $pid" }
+            }
+            "kill" -> {
+                engine.clearNativeFreezes()
+                engine.bpStopAll()
+                val res = Shell.runAs("kill -9 $pid", asRoot = asRoot)
+                if (res.exitCode == 0) {
+                    engine.detach()
+                    _ui.update { it.copy(attachedOk = false, processPaused = false, target = null, results = emptyList(), totalCount = 0L) }
+                    true to "Process $pid terminated"
+                } else false to res.out.joinToString(" ").ifBlank { "Failed to terminate process $pid" }
+            }
+            else -> false to "Unsupported action: $action"
         }
     }
 }

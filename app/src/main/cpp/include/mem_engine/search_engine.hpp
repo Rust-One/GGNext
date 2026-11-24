@@ -79,36 +79,23 @@ public:
         m_addrMask    = addrMask;
         m_addrPattern = addrPattern;
     }
-    void clearAddressFilter() noexcept {
-        m_addrMin = 0;
-        m_addrMax = 0;
-        m_addrMask = 0;
-        m_addrPattern = 0;
-    }
 
-    void setWorkerThreads(size_t count) noexcept { m_workerThreads = (count == 0) ? 1 : count; }
     size_t workerThreads() const noexcept { return m_workerThreads; }
-
-    void setChunkSize(size_t chunkBytes) noexcept { m_chunkSize = (chunkBytes < 65536) ? 65536 : chunkBytes; }
     size_t chunkSize() const noexcept { return m_chunkSize; }
 
     // Refresh target process VMAs matching current region mask
     std::vector<VmaRegion> refreshRegions();
-    void setCustomRegions(const std::vector<VmaRegion>& regions) { m_regions = regions; }
     const std::vector<VmaRegion>& regions() const noexcept { return m_regions; }
 
     // Access current candidate store & telemetry
     const MmapCandidateStore& candidates() const noexcept { return m_candidates; }
     MmapCandidateStore& candidates() noexcept { return m_candidates; }
-    size_t candidateCount() const noexcept { return m_candidates.size(); }
     size_t totalMatchedCount() const noexcept {
         const size_t matched = m_totalMatchedCount.load(std::memory_order_relaxed);
         return matched > m_candidates.size() ? matched : m_candidates.size();
     }
-    bool hasFuzzySnapshot() const noexcept { return m_hasFullSnapshot; }
     void fetchCandidates(size_t offset, size_t limit, std::vector<CandidateEntry>& out) const;
     size_t removeCandidates(const uint64_t* addresses, size_t count);
-    const ScanTelemetry& lastTelemetry() const noexcept { return m_lastTelemetry; }
 
     void clearSession() noexcept;
 
@@ -138,13 +125,6 @@ public:
     EngineErrc searchBytePattern(
         const std::vector<uint8_t>& pattern,
         const std::vector<uint8_t>& mask = {},
-        CancellationToken* token = nullptr,
-        ProgressCallback progress = nullptr
-    );
-
-    EngineErrc searchString(
-        const std::string& utf8Str,
-        bool utf16le = false,
         CancellationToken* token = nullptr,
         ProgressCallback progress = nullptr
     );

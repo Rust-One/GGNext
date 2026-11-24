@@ -44,9 +44,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -67,7 +65,6 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -173,7 +170,7 @@ fun GgCheckBox(
         animationSpec = tween(170),
         label = "chkBorder"
     )
-    val checkMarkColor = if (Rose.IsDark) Color(0xFF141013) else Color(0xFFFFFFFF)
+    val checkMarkColor = Rose.CheckMark
 
     val clickMod = if (onCheckedChange != null) {
         Modifier.clickableWithTooltip(
@@ -257,6 +254,20 @@ fun GgCheckBox(
  * - 3.6：长按输入框弹出「全选 / 复制 / 粘贴 / 剪切 / 清空」快捷菜单。
  */
 @OptIn(ExperimentalComposeUiApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
+
+/**
+ * 安全获取光标矩形：在文本刚变更但 BasicTextField 尚未回调新 TextLayoutResult 的过渡帧内，
+ * 按 layout 自身文本长度再次裁剪偏移量，彻底避免 IllegalArgumentException: offset out of bounds。
+ */
+private fun safeCursorRect(
+    layout: androidx.compose.ui.text.TextLayoutResult,
+    offset: Int
+): androidx.compose.ui.geometry.Rect {
+    val maxIdx = layout.layoutInput.text.length.coerceAtLeast(0)
+    return layout.getCursorRect(offset.coerceIn(0, maxIdx))
+}
+
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun GgTextField(
     value: TextFieldValue,
@@ -459,7 +470,7 @@ fun GgTextField(
                                             val prevCursor = currentVal.selection.end.coerceIn(0, text.length)
                                             val sameByOffset = wasCollapsed && targetOffset == prevCursor
                                             val sameByProximity = if (wasCollapsed && layout != null) {
-                                                val rect = layout.getCursorRect(prevCursor)
+                                                val rect = safeCursorRect(layout, prevCursor)
                                                 val caretCenterX = (rect.left + rect.right) / 2f
                                                 kotlin.math.abs(tapOffset.x - caretCenterX) <= 14.dp.toPx()
                                             } else false
@@ -505,7 +516,7 @@ fun GgTextField(
                             value.selection.collapsed
                         if (showPointerHandle && layout != null) {
                             val cursorIdx = value.selection.end.coerceIn(0, value.text.length)
-                            val cursorRect = layout.getCursorRect(cursorIdx)
+                            val cursorRect = safeCursorRect(layout, cursorIdx)
                             val caretCenterX = ((cursorRect.left + cursorRect.right) / 2f).coerceIn(0f, boxW)
                             val textTopOffset = ((boxH - layout.size.height) / 2f).coerceAtLeast(0f)
                             val caretBottomY = textTopOffset + cursorRect.bottom
@@ -538,7 +549,7 @@ fun GgTextField(
                                                 down.consume()
                                                 val activeLayout = currentLayout ?: return@awaitEachGesture
                                                 val startIdx = currentVal.selection.end.coerceIn(0, currentVal.text.length)
-                                                val startRect = activeLayout.getCursorRect(startIdx)
+                                                val startRect = safeCursorRect(activeLayout, startIdx)
                                                 val startCaretX = (startRect.left + startRect.right) / 2f
                                                 val downAnchorX = latestHandleOffsetX + down.position.x
                                                 var moved = false
@@ -597,7 +608,7 @@ fun GgTextField(
                             val touchBoxPx = with(density) { touchBoxSize.toPx() }
                             val yGapPx = with(density) { 1.5.dp.toPx() }
 
-                            val startRect = layout.getCursorRect(selMin)
+                            val startRect = safeCursorRect(layout, selMin)
                             val startCenterX = ((startRect.left + startRect.right) / 2f).coerceIn(0f, boxW)
                             val startOffsetX = (startCenterX - touchBoxPx / 2f).roundToInt()
                             val startOffsetY = (textTopOffset + startRect.bottom + yGapPx).roundToInt()
@@ -617,7 +628,7 @@ fun GgTextField(
                                                 down.consume()
                                                 val activeLayout = currentLayout ?: return@awaitEachGesture
                                                 val initialMin = currentVal.selection.min.coerceIn(0, currentVal.text.length)
-                                                val initialRect = activeLayout.getCursorRect(initialMin)
+                                                val initialRect = safeCursorRect(activeLayout, initialMin)
                                                 val startX = (initialRect.left + initialRect.right) / 2f
                                                 val downAnchorX = latestStartOffsetX + down.position.x
                                                 isDraggingSelectionHandle = true
@@ -654,7 +665,7 @@ fun GgTextField(
                                 }
                             }
 
-                            val endRect = layout.getCursorRect(selMax)
+                            val endRect = safeCursorRect(layout, selMax)
                             val endCenterX = ((endRect.left + endRect.right) / 2f).coerceIn(0f, boxW)
                             val endOffsetX = (endCenterX - touchBoxPx / 2f).roundToInt()
                             val endOffsetY = (textTopOffset + endRect.bottom + yGapPx).roundToInt()
@@ -674,7 +685,7 @@ fun GgTextField(
                                                 down.consume()
                                                 val activeLayout = currentLayout ?: return@awaitEachGesture
                                                 val initialMax = currentVal.selection.max.coerceIn(0, currentVal.text.length)
-                                                val initialRect = activeLayout.getCursorRect(initialMax)
+                                                val initialRect = safeCursorRect(activeLayout, initialMax)
                                                 val startX = (initialRect.left + initialRect.right) / 2f
                                                 val downAnchorX = latestEndOffsetX + down.position.x
                                                 isDraggingSelectionHandle = true
@@ -721,12 +732,12 @@ fun GgTextField(
                         if (showToolbar) {
                             val anchorCenterX = when {
                                 hasSelection && layout != null -> {
-                                    val r1 = layout.getCursorRect(value.selection.min.coerceIn(0, value.text.length))
-                                    val r2 = layout.getCursorRect(value.selection.max.coerceIn(0, value.text.length))
+                                    val r1 = safeCursorRect(layout, value.selection.min.coerceIn(0, value.text.length))
+                                    val r2 = safeCursorRect(layout, value.selection.max.coerceIn(0, value.text.length))
                                     (((r1.left + r2.right) / 2f)).coerceIn(0f, boxW)
                                 }
                                 layout != null -> {
-                                    val r = layout.getCursorRect(value.selection.end.coerceIn(0, value.text.length))
+                                    val r = safeCursorRect(layout, value.selection.end.coerceIn(0, value.text.length))
                                     ((r.left + r.right) / 2f).coerceIn(0f, boxW)
                                 }
                                 else -> boxW / 2f
@@ -747,9 +758,9 @@ fun GgTextField(
                                 Row(
                                     modifier = Modifier
                                         .onSizeChanged { toolbarSize = it }
-                                        .shadow(8.dp, RoundedCornerShape(12.dp))
-                                        .background(Rose.CardHigh, RoundedCornerShape(12.dp))
-                                        .border(1.dp, Rose.Primary.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                                        .shadow(8.dp, com.littlecodesauce.ggnext.ui.theme.GgShapes.Lg)
+                                        .background(Rose.CardHigh, com.littlecodesauce.ggnext.ui.theme.GgShapes.Lg)
+                                        .border(1.dp, Rose.Primary.copy(alpha = 0.35f), com.littlecodesauce.ggnext.ui.theme.GgShapes.Lg)
                                         .padding(horizontal = 4.dp, vertical = 2.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(1.dp)
@@ -1101,14 +1112,4 @@ fun VerticalFastScrollbar(
             )
         }
     }
-}
-
-@Composable
-fun Label(text: String, color: Color = Rose.TextSecond, size: Int = 12) {
-    Text(tr(text), color = color, fontSize = (size * LocalUiMetrics.current.fontScale).sp)
-}
-
-@Composable
-fun Gap(h: Int) {
-    androidx.compose.foundation.layout.Spacer(Modifier.height(h.dp))
 }

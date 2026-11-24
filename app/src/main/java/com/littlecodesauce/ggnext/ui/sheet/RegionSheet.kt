@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,7 +33,9 @@ import com.littlecodesauce.ggnext.ui.components.NextSheetCard
 import com.littlecodesauce.ggnext.ui.components.RoseButton
 import com.littlecodesauce.ggnext.ui.components.clickableNoRipple
 import com.littlecodesauce.ggnext.ui.components.fsp
-import com.littlecodesauce.ggnext.ui.model.RegionCatalog
+import com.littlecodesauce.ggnext.ui.theme.GgBorder
+import com.littlecodesauce.ggnext.ui.theme.GgControlHeight
+import com.littlecodesauce.ggnext.ui.theme.GgShapes
 import com.littlecodesauce.ggnext.ui.theme.Motion
 import com.littlecodesauce.ggnext.ui.theme.Rose
 import com.littlecodesauce.ggnext.ui.theme.regionColor
@@ -93,10 +94,10 @@ private fun RegionRow(index: Int, code: String, name: String, size: Long, select
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(48.dp)
+                .height(GgControlHeight.RowTall)
                 .scale(scale)
-                .background(bg, RoundedCornerShape(10.dp))
-                .border(if (selected) 1.5.dp else 0.dp, borderColor, RoundedCornerShape(10.dp))
+                .background(bg, GgShapes.Md)
+                .border(if (selected) GgBorder.Selected else 0.dp, borderColor, GgShapes.Md)
                 .clickableNoRipple(interaction, onClick = { Session.toggleRegion(code) })
                 .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically

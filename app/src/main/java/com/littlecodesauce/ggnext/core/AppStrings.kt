@@ -57,19 +57,27 @@ object AppStrings {
 • List Operations: Tap an item to edit, or use toolbar/context actions for batch edit, batch type change, freeze modes (Normal / Increment / Decrement / Range clamp), offset calculator, pointer search, and memory browser.
 • Floating Overlay: Start the floating ball from Home; tap it to open the panel (auto-hides while panel is open)."""
 
-    private const val CHANGELOG_TEXT_ZH = """GGNext v0.6 更新日志：
-1. 主线程零阻塞与引擎稳定性：Root 权限检测、批量读写、文件导入导出、进程终止及偏移/模块读取全面异步化；新增守护进程超时自愈与目标进程存活监测。
-2. 端到端扫描取消与原生覆盖：支持扫描中一键中断 C++20 线程；原生下推地址区间/蒙版、不等于 (!=)、反向范围 (~~) 与模糊 onlyNth 步进过滤；统一指针偏移语义。
-3. 批量修改与类型切换：新增多选地址批量更改类型、4 种冻结模式（正常/递增/递减/范围钳制）UI 配置、加密/XOR 写回自动重编码及只读/只写分离的列表文件管理。
-4. 性能与架构升级：引入 O(1) 全选/反选/清空状态模型；拆分搜索进度与 Toast 独立状态流；实现分层弹窗返回栈与纯 JSON 历史/保存列表持久化。
-5. 界面体验优化：完善中英文实时热切换、修复浅色模式对比度、消除横屏灰底遮罩、新增横屏左侧竖排导航栏并扩展至 16 套主题配色。"""
+    private const val CHANGELOG_TEXT_ZH = """GGNext v0.9.4 更新日志：
+1. 上下文与 token 治理（重点）：历史不再每轮全量重发——只保留 system + 最近 N 轮原文 + 更早历史摘要，token 从 O(n²) 降为近线性；工具结果按类型结构化摘要（列进程只留 pid/包名等），不再塞满 3000 字原文；顶部实时显示本轮/会话/上下文 token 用量，支持服务端 usage 精确计量与本地估算兜底。
+2. 流式输出：AI 回复边生成边显示，首字即时可见，不再长时间等待整段返回；网络抖动自动指数退避重试（3 次）。
+3. 多会话管理：可新建/切换/删除多个独立会话，各自上下文与 token 统计隔离；会话列表入口在对话页顶部「会话」按钮。
+4. 按需工具：可选开启「先发现再调用」，模型先用 find_tools 查询所需工具再加载其 schema，显著削减每轮固定工具开销；默认仍为全量工具以保兼容。
+5. 可配置预算：保留轮数、每轮上限、maxTokens 均可在配置区调整；实时对话推荐、「结果」按钮说明等 v0.9.3 体验沿用。
+6. 工具调用折叠：AI 调用工具的返回结果默认折叠为「工具名 + 摘要」一行，点击展开看完整 JSON，复制按钮仍在，长结果不再刷屏；Markdown 代码块限高可滚动、表格列宽收敛，观感更稳。
+7. 搜索值修改修复：手动改过的值不再被后台每 900ms 的实时刷新覆盖回旧值；编辑框在列表刷新时保持输入不丢失；写入失败时以内存实际值为准，避免「改成 9999 又变回 2000」。
+8. 横屏优化：进程列表等弹窗、搜索面板、AI 服务配置页在横屏下按屏宽自适应并居中，不再固定窄宽导致两侧大片留白；对话气泡在横屏下放宽。
+9. 路径统一：日志、脚本、dump、保存列表、日志导出统一到 Download/GGNext 配置根目录，日志落盘于 logs 子目录，导出默认到该目录。"""
 
-    private const val CHANGELOG_TEXT_EN = """GGNext v0.6 Changelog:
-1. Main-Thread ANR Elimination & Stability: Moved Root checks, batch edits, file I/O, process kill, and offset/module previews off the main thread; added daemon watchdog recovery and target process liveness monitoring.
-2. End-to-End Cancellation & Native Pushdown: Added instant native scan cancellation, address range/mask pushdown, native != and inverted range (~~), native fuzzy onlyNth stride, and unified pointer offset semantics.
-3. Batch Edit & Type Change: Added batch data-type switching for multi-selected items, all 4 freeze modes (Normal / Increment / Decrement / Range clamp) in Edit dialog, encrypted/XOR re-encoding on writeback, and separate Load/Save list file actions.
-4. Performance & Architecture: Introduced O(1) bulk selection across all tabs, isolated progress/toast StateFlows, layered sheet navigation stack, and pure-JSON persistence for search/goto/script history and saved list.
-5. UI Polish: Full live Chinese/English switching, light-mode contrast fixes, zero landscape dim scrim, landscape left vertical navigation rail, and 16 curated theme presets."""
+    private const val CHANGELOG_TEXT_EN = """GGNext v0.9.4 Changelog:
+1. Context & Token Governance (focus): History is no longer fully resent every round — only system + the latest N turns + a summary of older history, cutting token growth from O(n²) to near-linear; tool results are structured summaries by type (process lists keep only pid/package etc.) instead of 3000-char raw dumps; top bar shows live per-round/session/context token usage with server usage when available and local estimation as fallback.
+2. Streaming Output: AI replies render token-by-token; first characters appear instantly instead of waiting for the whole response. Network hiccups are retried with exponential backoff (3 attempts).
+3. Multi-Session: Create/switch/delete independent sessions, each with its own context and token stats; entry via the "Session" button at the top of the chat page.
+4. On-Demand Tools: Optionally enable discover-then-call — the model uses find_tools to locate the needed tools before loading their schemas, greatly reducing fixed per-round tool overhead; full tools remain the default for compatibility.
+5. Configurable Budget: Kept turns, max rounds and maxTokens are adjustable in the config area; v0.9.3 live suggestions and "Results" button explanation carried over.
+6. Collapsible Tool Calls: Tool results default to a one-line "name + summary" row; tap to expand full JSON, copy still available — long results no longer flood the chat; Markdown code blocks are height-capped and scrollable, table columns constrained.
+7. Edit-Value Fix: Manually edited values are no longer overwritten by the 900ms live refresh; the edit box keeps your input across list refreshes; failed writes fall back to the actual in-memory value, fixing "change to 9999 then it reverts to 2000".
+8. Landscape Polish: Process list / search sheet / AI service config now adapt to screen width and center in landscape instead of being stuck at a narrow width; chat bubbles widen in landscape.
+9. Unified Paths: Logs, scripts, dumps, saved list and log exports all live under the Download/GGNext config root; logs persist in the logs subdir and export there by default."""
 
     private val enMap: Map<String, String> = mapOf(
         "主页" to "Home",
@@ -110,6 +118,148 @@ object AppStrings {
         "界面语言" to "Language",
         "语言" to "Language",
         "恢复默认设置" to "Reset Default Settings",
+
+        // MCP Service & Battery Optimization
+        "MCP 服务" to "MCP Server",
+        "本地 MCP 接口与后台保活配置" to "Local MCP endpoint & background keep-alive",
+        "服务控制" to "Service Control",
+        "启用 MCP 服务" to "Enable MCP Server",
+        "开启本地 MCP 接口，供外部智能体调用内存与调试能力" to "Expose local MCP tools for external AI agents",
+        "MCP 服务已启动" to "MCP Server started",
+        "MCP 服务已停止" to "MCP Server stopped",
+        "启动失败" to "Start failed",
+        "请求" to "Requests",
+        "Streamable HTTP 地址" to "Streamable HTTP Endpoint",
+        "SSE 兼容地址" to "SSE Compatible Endpoint",
+        "复制客户端配置 JSON" to "Copy Client Config JSON",
+        "一键复制 mcpServers 标准接入配置" to "Copy standard mcpServers client config",
+        "已复制 MCP 客户端配置" to "Copied MCP client config",
+        "后台保活与权限" to "Background Keep-Alive & Permissions",
+        "忽略电池优化" to "Ignore Battery Optimizations",
+        "已允许后台无限制运行，切换应用或锁屏时连接更稳定" to "Unrestricted background execution enabled for stable connections",
+        "建议授予此权限，防止切后台后 MCP 服务被系统休眠中断" to "Recommended to prevent the system from suspending MCP in background",
+        "已开启" to "Enabled",
+        "未开启" to "Off",
+        "去申请" to "Grant",
+        "无法打开系统电池优化页面" to "Unable to open battery optimization settings",
+        "网络与鉴权" to "Network & Authentication",
+        "监听端口 (1024–65535)" to "Listen Port (1024–65535)",
+        "已保存端口" to "Saved port",
+        "允许局域网访问" to "Allow LAN Access",
+        "监听 0.0.0.0（同一 Wi-Fi 下电脑可直接连接）" to "Listen on 0.0.0.0 (accessible from devices on the same Wi-Fi)",
+        "仅限本机 127.0.0.1 访问（推荐配合 ADB 端口转发）" to "Localhost 127.0.0.1 only (recommended with ADB port forwarding)",
+        "启用令牌鉴权" to "Enable Token Auth",
+        "开启后请求需携带 Bearer Token，局域网访问建议开启" to "Require Bearer Token on requests (recommended for LAN access)",
+        "已复制访问令牌" to "Copied access token",
+        "重置令牌" to "Reset Token",
+        "已重置访问令牌" to "Access token regenerated",
+        "已提供工具" to "Available Tools",
+
+        // AI Service (v0.9.0)
+        "AI 服务" to "AI Service",
+        "配置 AI 接口、模型与连通性测试" to "Configure AI endpoint, model & connection test",
+        "配置 OpenAI 兼容接口，供脚本与智能体调用" to "Configure an OpenAI-compatible endpoint for scripts & agents",
+        "启用 AI 服务" to "Enable AI Service",
+        "服务开关" to "Service Switch",
+        "接口配置" to "Endpoint Config",
+        "模型配置" to "Model Config",
+        "连接测试" to "Connection Test",
+        "服务地址 (http/https · 域名或 IP:端口)" to "Base URL (http/https · domain or IP:port)",
+        "当前为明文 HTTP，请确保网络可信（应用已允许明文流量）" to "Using cleartext HTTP — ensure a trusted network (cleartext traffic is allowed)",
+        "API Key（可选，按服务要求填写）" to "API Key (optional, per server requirement)",
+        "模型名称（可手填，或从服务自动获取）" to "Model name (type manually or auto-fetch)",
+        "自动获取" to "Auto-fetch",
+        "获取中" to "Fetching",
+        "已获取模型" to "Models loaded",
+        "获取失败" to "Fetch failed",
+        "可用模型（点击选用）" to "Available models (tap to select)",
+        "发送测试请求" to "Send Test Request",
+        "测试中" to "Testing",
+        "保存配置" to "Save Config",
+        "AI 配置已保存" to "AI config saved",
+        "连接成功" to "Connected",
+        "连接失败" to "Connection failed",
+        "已启用" to "Enabled",
+        "未启用" to "Disabled",
+
+        // AI 对话 tab (v0.9.0)
+        "对话" to "Chat",
+        "AI 对话" to "AI Chat",
+        "未配置模型" to "No model configured",
+        "配置" to "Config",
+        "清空对话" to "Clear chat",
+        "服务地址" to "Base URL",
+        "API Key（可选）" to "API Key (optional)",
+        "模型" to "Model",
+        "自动获取模型" to "Auto-fetch models",
+        "配置已保存" to "Config saved",
+        "请先配置服务地址与模型" to "Configure base URL and model first",
+        "输入消息开始对话。先在上方配置 AI 服务。" to "Type a message to start. Configure the AI service above first.",
+        "输入消息…" to "Type a message…",
+        "思考中…" to "Thinking…",
+        "执行工具：" to "Running tool: ",
+        "确认执行操作" to "Confirm action",
+        "AI 请求执行以下操作，该操作会修改目标进程：" to "AI requests the following action, which will modify the target process:",
+        "确认执行" to "Confirm",
+        "已开启：发送时附带当前搜索结果前 10 条" to "On: outgoing messages include the top 10 current search results",
+        "已关闭：发送时不附带搜索结果" to "Off: outgoing messages do not include search results",
+        "「结果」按钮：开启后发送消息会自动附带当前搜索结果前 10 条，让 AI 基于真实数据分析。" to "\"Results\" button: when on, outgoing messages automatically include the top 10 current search results so AI can analyze real data.",
+        // AI 全自动执行 (v0.9.4)
+        "全自动执行（默认同意全部，不再逐次确认）" to "Auto-execute (approve all, no per-step confirmation)",
+        "已开启全自动执行" to "Auto-execute enabled",
+        "已关闭全自动执行，写操作将逐次确认" to "Auto-execute off; write actions need confirmation",
+        "开" to "On",
+        "关" to "Off",
+        "全自动执行（默认同意全部）" to "Auto-execute (approve all by default)",
+        "开启后 AI 调用的所有工具自动执行，不再逐次弹窗确认；关闭则写操作需手动确认" to "When on, AI tool calls run automatically with no per-step confirmation; when off, write actions need manual confirmation",
+        "用户拒绝执行该操作" to "Action denied by user",
+        "工具调用轮次已达上限，已停止。" to "Tool-call limit reached, stopped.",
+        "对话已清空" to "Chat cleared",
+        "对话已复制" to "Chat copied",
+        "复制对话" to "Copy chat",
+        "我" to "Me",
+        "AI" to "AI",
+        "AI 可调用工具直接操作 GGNext 功能" to "AI can call tools to control GGNext",
+        "查看当前状态" to "Check current status",
+        "列出正在运行的进程" to "List running processes",
+        "搜索内存中的整数" to "Search integers in memory",
+        "读取指定地址的内存" to "Read memory at an address",
+        "列出可用的断点工具" to "List breakpoint tools",
+        "发送" to "Send",
+        "说明：配置兼容 OpenAI Chat Completions 协议的服务（OpenAI、Ollama、vLLM、One API 等）。自动获取调用 /v1/models，测试请求调用 /v1/chat/completions。API Key 仅保存在本机。" to "Note: Works with OpenAI Chat Completions-compatible services (OpenAI, Ollama, vLLM, One API, etc.). Auto-fetch uses /v1/models, test uses /v1/chat/completions. The API Key is stored locally only.",
+
+        "工具列表" to "Tool List",
+        "MCP 工具列表" to "MCP Tools",
+        "查看全部已注册 MCP 工具与参数说明" to "View all registered MCP tools and parameter schemas",
+        "点击任意工具展开英文提示词与参数详情" to "Tap any tool to inspect its English prompt and parameters",
+        "参数列表" to "Parameters",
+        "无需参数" to "No parameters required",
+        "必填" to "Required",
+        "可选" to "Optional",
+        "最近调用记录" to "Recent Calls",
+        "系统" to "System",
+        "进程" to "Process",
+        "搜索" to "Search",
+        "汇编" to "ASM",
+        "修改" to "Edit",
+        "获取工作模式、目标进程、搜索与汇编引擎状态" to "Get work mode, attached target, search & ASM status",
+        "枚举运行中进程，支持关键词过滤" to "List running processes with keyword filter",
+        "按 PID 或包名附加目标进程" to "Attach target process by PID or package name",
+        "列出目标进程内存映射区域 (/proc/pid/maps)" to "List target process memory regions (/proc/pid/maps)",
+        "按地址读取原始字节及指定数据类型数值" to "Read raw bytes and typed values at address",
+        "按地址写入原始字节或指定类型数值" to "Write raw bytes or typed values to address",
+        "查看内存窗口（地址/HEX/Dword/Float/指针/可选反汇编）" to "Inspect memory window with hex, values, pointers & optional disasm",
+        "执行精确、范围、联合、异或与 HEX 新搜索或改善" to "Run exact, range, group, XOR & HEX search or refine",
+        "执行未知初始快照与模糊变化改善搜索" to "Run unknown initial snapshot & fuzzy delta refinement",
+        "分页拉取当前搜索结果并刷新实时值" to "Paginate search results with live refreshed values",
+        "清空当前搜索会话并释放缓存" to "Clear current search session and buffers",
+        "将多架构汇编指令编译为机器码，可选直接写入地址" to "Assemble instructions for target arch and optionally write to memory",
+        "反汇编指定内存地址或十六进制机器码" to "Disassemble target memory address or raw hex bytes",
+        "在目标进程跨进程分配自定义 RWX 权限内存页" to "Allocate a custom RWX memory page in the target process",
+        "在目标进程内复制指定长度的内存块" to "Copy a memory block within the target process",
+        "将目标进程指定地址区间导出到文件" to "Dump a target memory range to a file",
+        "锁定/解锁目标地址数值（支持精确/递增/递减/范围钳制）" to "Freeze or unfreeze an address value (exact/inc/dec/range)",
+        "添加/查询/暂停/恢复/清除/移除硬件断点并查看命中寄存器" to "Add, list, pause, resume, clear or remove hardware breakpoints",
         "重置主题、透明度、屏幕占比、字号与语言设置" to "Reset theme, opacity, scale, font size and language",
         "冻结间隔" to "Freeze Interval",
         "使用声明与免责协议" to "Terms of Use & Disclaimer",
@@ -150,7 +300,7 @@ object AppStrings {
         "使用帮助与语法指南" to "Help & Syntax Guide",
         "了解精确搜索、模糊搜索、联合搜索与批量修改用法" to "Learn exact, fuzzy, group search & batch editing",
         "关于软件" to "About App",
-        "GGNext v0.6 · 查看软件信息与更新日志" to "GGNext v0.6 · App info & changelog",
+        "GGNext v0.9.4 · 查看软件信息与更新日志" to "GGNext v0.9.4 · App info & changelog",
         "管理软件语言、主题配色、背景透明度、页面屏幕占比与关于信息" to "Manage language, theme, opacity, screen ratio & about info",
         "语言与区域" to "Language & Region",
         "切换" to "Switch",
@@ -190,9 +340,9 @@ object AppStrings {
         "列表入场与骨架屏动画" to "List Enter & Skeleton Animation",
         "关于与支持" to "About & Support",
         "关于 GGNext" to "About GGNext",
-        "版本 v0.6 · 架构与环境信息" to "Version v0.6 · Architecture & environment",
+        "版本 v0.9.4 · 架构与环境信息" to "Version v0.9.4 · Architecture & environment",
         "更新日志" to "Changelog",
-        "查看 v0.6 版本优化与修复详情" to "View v0.6 optimizations & bug fixes",
+        "查看 v0.9.4 版本优化与修复详情" to "View v0.9.4 optimizations & bug fixes",
         "使用帮助" to "User Guide",
         "搜索语法与功能说明" to "Search syntax & feature reference",
         "软件运行日志" to "Runtime Log",
@@ -516,12 +666,12 @@ object AppStrings {
         "悬浮窗服务" to "Overlay Service",
         "在屏幕显示可拖拽悬浮球" to "Display a draggable floating ball on screen",
         "短按悬浮球打开面板，长按调节变速" to "Tap the floating ball to open panel, hold for speed",
-        "GGNext v0.6 · 点击展开修改器面板" to "GGNext v0.6 · Tap to open modifier panel",
-        "GGNext v0.6 · 点击启动悬浮球服务" to "GGNext v0.6 · Tap to start overlay service",
+        "GGNext v0.9.4 · 点击展开修改器面板" to "GGNext v0.9.4 · Tap to open modifier panel",
+        "GGNext v0.9.4 · 点击启动悬浮球服务" to "GGNext v0.9.4 · Tap to start overlay service",
         "Root · 已授权" to "Root · Granted",
         "Root · 未授权，点击检测" to "Root · Not granted, tap to check",
         "免 Root · 共享 UID" to "No Root · Shared UID",
-        "版本 v0.6、项目地址与开源许可" to "Version v0.6, repository & open-source license",
+        "版本 v0.9.4、项目地址与开源许可" to "Version v0.9.4, repository & open-source license",
         "重置主题、字体、透明度、屏幕占比与语言设置" to "Reset theme, font, opacity, screen ratio & language",
         "权限与环境" to "Permissions & Environment",
         "所有文件访问权限" to "All Files Access",
@@ -536,7 +686,7 @@ object AppStrings {
         "当前目标进程" to "Current Target Process",
         "未附加" to "Not Attached",
         "已启用内存区域" to "Enabled Memory Regions",
-        "GGNext v0.6 · 点击启动悬浮球" to "GGNext v0.6 · Tap to start floating ball",
+        "GGNext v0.9.4 · 点击启动悬浮球" to "GGNext v0.9.4 · Tap to start floating ball",
         "停止" to "Stop",
         "启动" to "Start",
         "支持与诊断" to "Support & Diagnostics",
@@ -544,7 +694,7 @@ object AppStrings {
         "关于" to "About",
         "特别鸣谢" to "Special Thanks",
         "致谢启发本项目设计的优秀工具" to "Credits to projects that inspired GGNext",
-        "版本 v0.6、官方群组与开源许可" to "Version v0.6, official group & license",
+        "版本 v0.9.4、官方群组与开源许可" to "Version v0.9.4, official group & license",
         "色彩与深浅模式" to "Colors & Dark Mode",
         "字体管理" to "Font Manager",
         "已管理字体" to "Managed Fonts",

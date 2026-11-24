@@ -5,7 +5,6 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -13,14 +12,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Lock
@@ -37,7 +33,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.littlecodesauce.ggnext.core.Session
 import com.littlecodesauce.ggnext.core.Sheet
@@ -45,6 +40,8 @@ import com.littlecodesauce.ggnext.core.Ui
 import com.littlecodesauce.ggnext.model.MemoryItem
 import com.littlecodesauce.ggnext.model.ValueType
 import com.littlecodesauce.ggnext.ui.components.GgCheckBox
+import com.littlecodesauce.ggnext.ui.components.GgEmptyState
+import com.littlecodesauce.ggnext.ui.components.GgIconActionButton
 import com.littlecodesauce.ggnext.ui.components.ItemEnter
 import com.littlecodesauce.ggnext.ui.components.ScaledNumber
 import com.littlecodesauce.ggnext.ui.components.VerticalFastScrollbar
@@ -53,7 +50,7 @@ import com.littlecodesauce.ggnext.ui.components.clickableWithTooltip
 import com.littlecodesauce.ggnext.ui.components.fsp
 import com.littlecodesauce.ggnext.ui.components.monoStyle
 import com.littlecodesauce.ggnext.ui.components.rememberPersistentLazyListState
-import com.littlecodesauce.ggnext.ui.components.tr
+import com.littlecodesauce.ggnext.ui.theme.GgShapes
 import com.littlecodesauce.ggnext.ui.theme.Motion
 import com.littlecodesauce.ggnext.ui.theme.Rose
 import com.littlecodesauce.ggnext.ui.theme.regionColor
@@ -62,23 +59,10 @@ import com.littlecodesauce.ggnext.ui.theme.typeColor
 @Composable
 fun SavedListScreen(ui: Ui) {
     if (ui.saved.isEmpty()) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Icon(Icons.Rounded.Save, null, tint = Rose.TextDim, modifier = Modifier.size(46.dp))
-            Spacer(Modifier.height(14.dp))
-            Text(
-                tr("保存列表为空。\n在搜索列表中勾选后按「保存」加入。"),
-                color = Rose.TextSecond,
-                fontSize = fsp(14f),
-                lineHeight = fsp(21f),
-                textAlign = TextAlign.Center
-            )
-        }
+        GgEmptyState(
+            icon = Icons.Rounded.Save,
+            message = "保存列表为空。\n在搜索列表中勾选后按「保存」加入。"
+        )
         return
     }
     val listState = rememberPersistentLazyListState("saved_list")
@@ -144,7 +128,7 @@ private fun SavedRow(item: MemoryItem, checked: Boolean, mask: Int, index: Int) 
             Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 8.dp, vertical = 2.dp)
-                .background(rowBg, RoundedCornerShape(10.dp))
+                .background(rowBg, GgShapes.Md)
                 .padding(horizontal = 8.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -214,14 +198,14 @@ private fun SavedRow(item: MemoryItem, checked: Boolean, mask: Int, index: Int) 
             Spacer(Modifier.width(6.dp))
 
             // 5. 独立删除按钮
-            Box(
-                Modifier
-                    .size(28.dp)
-                    .clickableWithTooltip { Session.deleteSaved(currentItem) },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Rounded.Delete, "删除", tint = Rose.Red, modifier = Modifier.size(17.dp))
-            }
+            GgIconActionButton(
+                icon = Icons.Rounded.Delete,
+                contentDescription = "删除",
+                tint = Rose.Red,
+                boxSize = 28.dp,
+                iconSize = 17.dp,
+                onClick = { Session.deleteSaved(currentItem) }
+            )
         }
     }
 }

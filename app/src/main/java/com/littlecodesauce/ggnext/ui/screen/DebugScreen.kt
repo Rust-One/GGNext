@@ -1,12 +1,9 @@
 package com.littlecodesauce.ggnext.ui.screen
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,15 +18,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
@@ -52,7 +48,6 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
 import com.littlecodesauce.ggnext.core.Session
 import com.littlecodesauce.ggnext.core.Sheet
 import com.littlecodesauce.ggnext.core.Ui
@@ -62,16 +57,25 @@ import com.littlecodesauce.ggnext.model.BpHitGroup
 import com.littlecodesauce.ggnext.model.BpRegEntry
 import com.littlecodesauce.ggnext.model.BpSession
 import com.littlecodesauce.ggnext.model.BpType
+import com.littlecodesauce.ggnext.ui.components.GgBadge
 import com.littlecodesauce.ggnext.ui.components.GgCheckBox
+import com.littlecodesauce.ggnext.ui.components.GgEmptyState
+import com.littlecodesauce.ggnext.ui.components.GgIconActionButton
+import com.littlecodesauce.ggnext.ui.components.GgInputBox
+import com.littlecodesauce.ggnext.ui.components.GgModalOverlay
+import com.littlecodesauce.ggnext.ui.components.GgSegmentTab
+import com.littlecodesauce.ggnext.ui.components.GgSurfaceCard
 import com.littlecodesauce.ggnext.ui.components.RoseButton
-import com.littlecodesauce.ggnext.ui.components.clickableWithTooltip
-import com.littlecodesauce.ggnext.ui.components.dialogEnter
-import com.littlecodesauce.ggnext.ui.components.dialogExit
 import com.littlecodesauce.ggnext.ui.components.expandEnter
 import com.littlecodesauce.ggnext.ui.components.expandExit
 import com.littlecodesauce.ggnext.ui.components.fsp
 import com.littlecodesauce.ggnext.ui.components.monoStyle
 import com.littlecodesauce.ggnext.ui.components.tr
+import com.littlecodesauce.ggnext.ui.theme.GgBorder
+import com.littlecodesauce.ggnext.ui.theme.GgControlHeight
+import com.littlecodesauce.ggnext.ui.theme.GgIconSize
+import com.littlecodesauce.ggnext.ui.theme.GgShapes
+import com.littlecodesauce.ggnext.ui.theme.GgSpacing
 import com.littlecodesauce.ggnext.ui.theme.Rose
 
 private data class EditingRegTarget(
@@ -99,18 +103,28 @@ fun DebugScreen(ui: Ui) {
     val expandedBps = remember { mutableStateMapOf<Int, Boolean>() }
     val expandedHits = remember { mutableStateMapOf<String, Boolean>() }
     var editingReg by remember { mutableStateOf<EditingRegTarget?>(null) }
+    var savingReg by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize()) {
         if (ui.breakpoints.isEmpty()) {
-            DebugEmptyState(
-                attached = ui.attachedOk,
-                onAdd = { Session.openSheet(Sheet.BREAKPOINT) }
+            GgEmptyState(
+                icon = Icons.Rounded.BugReport,
+                title = "硬件断点调试器",
+                message = if (ui.attachedOk) {
+                    "支持硬件断点监听，命中后自动采集寄存器与调用链回溯"
+                } else {
+                    "请先附加目标进程，然后从内存/搜索列表长按地址或点击上方 + 添加硬件断点"
+                },
+                iconInBadge = true,
+                actionLabel = "添加硬件断点",
+                actionEnabled = ui.attachedOk,
+                onAction = { Session.openSheet(Sheet.BREAKPOINT) }
             )
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 52.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                contentPadding = PaddingValues(start = GgSpacing.Md, end = GgSpacing.Md, top = GgSpacing.Md, bottom = 52.dp),
+                verticalArrangement = Arrangement.spacedBy(GgSpacing.Md)
             ) {
                 items(
                     items = ui.breakpoints,
@@ -135,17 +149,20 @@ fun DebugScreen(ui: Ui) {
             }
         }
 
-        AnimatedVisibility(
+        GgModalOverlay(
             visible = editingReg != null,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.fillMaxSize().zIndex(20f)
+            onDismiss = { if (!savingReg) editingReg = null }
         ) {
             val target = editingReg
             if (target != null) {
-                RegisterEditModal(
+                RegisterEditCard(
                     target = target,
-                    onDismiss = { editingReg = null }
+                    saving = savingReg,
+                    onSavingChange = { savingReg = it },
+                    onDismiss = {
+                        savingReg = false
+                        editingReg = null
+                    }
                 )
             }
         }
@@ -165,7 +182,6 @@ private fun BreakpointSessionCard(
     onToggleHit: (String) -> Unit,
     onEditReg: (EditingRegTarget) -> Unit
 ) {
-    val bgOpacity = com.littlecodesauce.ggnext.ui.theme.LocalUiMetrics.current.bgOpacity.coerceIn(0.25f, 1.0f)
     val typeAccent = bpTypeColor(bp.type)
     val statusText = when {
         bp.isActive -> tr("运行中")
@@ -178,17 +194,13 @@ private fun BreakpointSessionCard(
         else -> Rose.TextDim
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(Rose.Card.copy(alpha = (bgOpacity * 0.94f).coerceIn(0.25f, 1.0f)))
-            .border(
-                width = if (selected) 1.2.dp else 0.8.dp,
-                color = if (selected) Rose.Primary else Rose.Divider,
-                shape = RoundedCornerShape(12.dp)
-            )
-            .padding(horizontal = 10.dp, vertical = 9.dp)
+    GgSurfaceCard(
+        shape = GgShapes.Lg,
+        borderColor = if (selected) Rose.Primary else Rose.Divider,
+        borderWidth = if (selected) GgBorder.Emphasis else GgBorder.Thin,
+        contentPadding = PaddingValues(horizontal = GgSpacing.MdPlus, vertical = 9.dp),
+        respectBgOpacity = true,
+        bgOpacityScale = 0.94f
     ) {
         Row(
             modifier = Modifier
@@ -202,74 +214,54 @@ private fun BreakpointSessionCard(
                 size = 19.dp,
                 accentColor = Rose.Primary
             )
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(GgSpacing.Md))
             Text(
                 text = "#${bp.id}",
                 style = monoStyle(12, Rose.TextDim, weight = FontWeight.Medium)
             )
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(GgSpacing.Md))
             Text(
                 text = bp.addressHex,
                 style = monoStyle(14, Rose.Text, weight = FontWeight.SemiBold),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(GgSpacing.Md))
             Text(
                 text = tr(bp.type.shortLabel),
                 color = typeAccent,
                 fontSize = fsp(12.5f),
                 fontWeight = FontWeight.SemiBold
             )
-            Spacer(Modifier.width(4.dp))
+            Spacer(Modifier.width(GgSpacing.Xs))
             Text(
                 text = "${bp.size}B",
                 style = monoStyle(10.5f.toInt(), Rose.TextDim)
             )
-            Spacer(Modifier.width(4.dp))
+            Spacer(Modifier.width(GgSpacing.Xs))
             Icon(
-                imageVector = if (expanded) Icons.Rounded.KeyboardArrowDown else Icons.Rounded.KeyboardArrowRight,
+                imageVector = if (expanded) Icons.Rounded.KeyboardArrowDown else Icons.AutoMirrored.Rounded.KeyboardArrowRight,
                 contentDescription = null,
                 tint = Rose.TextSecond,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(GgIconSize.Md)
             )
             Spacer(Modifier.weight(1f))
-            Box(
-                modifier = Modifier
-                    .size(30.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickableWithTooltip(tooltip = if (bp.isActive) tr("暂停") else tr("恢复")) {
-                        onTogglePause()
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = if (bp.isActive) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = null,
-                    tint = if (bp.isActive) Rose.Text else Rose.Green,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-            Spacer(Modifier.width(2.dp))
-            Box(
-                modifier = Modifier
-                    .size(30.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickableWithTooltip(tooltip = tr("删除断点")) {
-                        onDelete()
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.DeleteOutline,
-                    contentDescription = null,
-                    tint = Rose.Red.copy(alpha = 0.85f),
-                    modifier = Modifier.size(18.dp)
-                )
-            }
+            GgIconActionButton(
+                icon = if (bp.isActive) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                contentDescription = if (bp.isActive) "暂停" else "恢复",
+                tint = if (bp.isActive) Rose.Text else Rose.Green,
+                onClick = onTogglePause
+            )
+            Spacer(Modifier.width(GgSpacing.Xxs))
+            GgIconActionButton(
+                icon = Icons.Rounded.DeleteOutline,
+                contentDescription = "删除断点",
+                tint = Rose.Red.copy(alpha = 0.85f),
+                onClick = onDelete
+            )
         }
 
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(GgSpacing.Xs))
 
         Row(
             modifier = Modifier
@@ -292,15 +284,15 @@ private fun BreakpointSessionCard(
         }
 
         if (bp.lastError.isNotBlank()) {
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(GgSpacing.Sm))
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = 27.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(GgShapes.Sm)
                     .background(Rose.Red.copy(alpha = 0.14f))
-                    .border(0.8.dp, Rose.Red.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 8.dp, vertical = 5.dp)
+                    .border(GgBorder.Thin, Rose.Red.copy(alpha = 0.4f), GgShapes.Sm)
+                    .padding(horizontal = GgSpacing.Md, vertical = 5.dp)
             ) {
                 Text(
                     text = bp.lastError,
@@ -315,15 +307,15 @@ private fun BreakpointSessionCard(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                    .padding(top = GgSpacing.Md),
+                verticalArrangement = Arrangement.spacedBy(GgSpacing.Sm)
             ) {
                 if (bp.hits.isEmpty()) {
                     Text(
                         text = tr("正在监听中，等待目标进程访问此地址…"),
                         color = Rose.TextDim,
                         fontSize = fsp(11.5f),
-                        modifier = Modifier.padding(start = 27.dp, top = 2.dp, bottom = 4.dp)
+                        modifier = Modifier.padding(start = 27.dp, top = GgSpacing.Xxs, bottom = GgSpacing.Xs)
                     )
                 } else {
                     bp.hits.forEachIndexed { idx, hit ->
@@ -356,14 +348,15 @@ private fun BpHitGroupRow(
     val clipboard = LocalClipboardManager.current
     var regTab by remember(hit.pc) { mutableIntStateOf(0) } // 0 = X (GPR), 1 = 浮点 (FP/SIMD)
     val hitTypeColor = bpTypeColor(hit.hitType)
+    val regTabSelectedBg = Rose.Primary.copy(alpha = if (Rose.IsDark) 0.30f else 0.20f)
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+            .clip(GgShapes.Md)
             .background(Rose.Row.copy(alpha = 0.92f))
-            .border(0.7.dp, Rose.Divider.copy(alpha = 0.7f), RoundedCornerShape(10.dp))
-            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .border(GgBorder.Thin, Rose.Divider.copy(alpha = 0.7f), GgShapes.Md)
+            .padding(horizontal = GgSpacing.MdPlus, vertical = GgSpacing.Md)
     ) {
         // 命中汇总行：只读/只写 PC <hex> <module> 命中 <N> ▾
         Row(
@@ -378,12 +371,12 @@ private fun BpHitGroupRow(
                 fontSize = fsp(12f),
                 fontWeight = FontWeight.SemiBold
             )
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(GgSpacing.Md))
             Text(
                 text = "PC ${hit.pcHex}",
                 style = monoStyle(12.5f.toInt(), Rose.Text, weight = FontWeight.Medium)
             )
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(GgSpacing.Md))
             Text(
                 text = hit.moduleName,
                 style = monoStyle(11.5f.toInt(), Rose.Primary),
@@ -391,14 +384,14 @@ private fun BpHitGroupRow(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(GgSpacing.Sm))
             Text(
                 text = "${tr("命中")} ${hit.count}",
                 style = monoStyle(11, Rose.TextSecond)
             )
-            Spacer(Modifier.width(4.dp))
+            Spacer(Modifier.width(GgSpacing.Xs))
             Icon(
-                imageVector = if (expanded) Icons.Rounded.KeyboardArrowDown else Icons.Rounded.KeyboardArrowRight,
+                imageVector = if (expanded) Icons.Rounded.KeyboardArrowDown else Icons.AutoMirrored.Rounded.KeyboardArrowRight,
                 contentDescription = null,
                 tint = Rose.TextSecond,
                 modifier = Modifier.size(17.dp)
@@ -409,14 +402,14 @@ private fun BpHitGroupRow(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(top = GgSpacing.Md),
+                verticalArrangement = Arrangement.spacedBy(GgSpacing.Md)
             ) {
                 // 指令反汇编与快捷跳转条
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(GgShapes.Sm)
                         .background(Rose.CardHigh.copy(alpha = 0.85f))
                         .padding(horizontal = 9.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -425,7 +418,7 @@ private fun BpHitGroupRow(
                         text = "${tr("命中")} #$hitIndex",
                         style = monoStyle(11, Rose.TextSecond)
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(GgSpacing.Md))
                     Column(Modifier.weight(1f)) {
                         Text(
                             text = "PC ${hit.pcHex}",
@@ -440,31 +433,29 @@ private fun BpHitGroupRow(
                             )
                         }
                     }
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clip(RoundedCornerShape(7.dp))
-                            .clickableWithTooltip(tooltip = tr("复制指令信息")) {
-                                val text = "PC 0x${hit.pcHex} (${hit.moduleName}+0x${java.lang.Long.toUnsignedString(hit.moduleOffset, 16).uppercase()}) ${hit.disasmText}"
-                                clipboard.setText(AnnotatedString(text))
-                                Session.toast("已复制命中指令")
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Rounded.ContentCopy, null, tint = Rose.TextSecond, modifier = Modifier.size(15.dp))
-                    }
-                    Spacer(Modifier.width(4.dp))
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clip(RoundedCornerShape(7.dp))
-                            .clickableWithTooltip(tooltip = tr("转到 PC 地址")) {
-                                Session.goto(hit.pc, recordHistory = true, highlightTarget = true)
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Rounded.OpenInNew, null, tint = Rose.Primary, modifier = Modifier.size(16.dp))
-                    }
+                    GgIconActionButton(
+                        icon = Icons.Rounded.ContentCopy,
+                        contentDescription = "复制指令信息",
+                        tint = Rose.TextSecond,
+                        boxSize = 28.dp,
+                        iconSize = 15.dp,
+                        onClick = {
+                            val text = "PC 0x${hit.pcHex} (${hit.moduleName}+0x${java.lang.Long.toUnsignedString(hit.moduleOffset, 16).uppercase()}) ${hit.disasmText}"
+                            clipboard.setText(AnnotatedString(text))
+                            Session.toast("已复制命中指令")
+                        }
+                    )
+                    Spacer(Modifier.width(GgSpacing.Xs))
+                    GgIconActionButton(
+                        icon = Icons.AutoMirrored.Rounded.OpenInNew,
+                        contentDescription = "转到 PC 地址",
+                        tint = Rose.Primary,
+                        boxSize = 28.dp,
+                        iconSize = GgIconSize.Sm,
+                        onClick = {
+                            Session.goto(hit.pc, recordHistory = true, highlightTarget = true)
+                        }
+                    )
                 }
 
                 // 精简元数据行：仅保留 PC / SP / LR
@@ -498,11 +489,26 @@ private fun BpHitGroupRow(
                             fontSize = fsp(10.5f)
                         )
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        RegTabPill(label = "X", selected = regTab == 0) { regTab = 0 }
-                        RegTabPill(
+                    Row(horizontalArrangement = Arrangement.spacedBy(GgSpacing.Sm)) {
+                        GgSegmentTab(
+                            label = "X",
+                            selected = regTab == 0,
+                            height = 28.dp,
+                            shape = GgShapes.Sm,
+                            selectedBackground = regTabSelectedBg,
+                            fontSize = 11.5f,
+                            translate = false,
+                            horizontalPadding = GgSpacing.Lg
+                        ) { regTab = 0 }
+                        GgSegmentTab(
                             label = if (hit.fprs.isNotEmpty()) tr("浮点") else "${tr("浮点")} (${hit.fprs.size})",
-                            selected = regTab == 1
+                            selected = regTab == 1,
+                            height = 28.dp,
+                            shape = GgShapes.Sm,
+                            selectedBackground = regTabSelectedBg,
+                            fontSize = 11.5f,
+                            translate = false,
+                            horizontalPadding = GgSpacing.Lg
                         ) { regTab = 1 }
                     }
                     if (regTab == 0) {
@@ -544,14 +550,14 @@ private fun BpHitGroupRow(
 
                 // 回溯调用链（自带在命中结果里，点击可直接跳入内存编辑器）
                 if (hit.callstack.isNotEmpty()) {
-                    Spacer(Modifier.height(2.dp))
+                    Spacer(Modifier.height(GgSpacing.Xxs))
                     Text(
                         text = "${tr("回溯")} (${hit.callstack.size})",
                         color = Rose.TextSecond,
                         fontSize = fsp(11.5f),
                         fontWeight = FontWeight.SemiBold
                     )
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(GgSpacing.Xs)) {
                         hit.callstack.forEachIndexed { fIdx, frame ->
                             CallstackFrameRow(
                                 index = fIdx + 1,
@@ -574,33 +580,6 @@ private fun BpHitGroupRow(
 }
 
 @Composable
-private fun RegTabPill(label: String, selected: Boolean, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(
-                if (selected) Rose.Primary.copy(alpha = if (Rose.IsDark) 0.30f else 0.20f)
-                else Rose.CardHigh
-            )
-            .border(
-                width = 0.8.dp,
-                color = if (selected) Rose.Primary else Rose.Divider,
-                shape = RoundedCornerShape(8.dp)
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 4.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = label,
-            color = if (selected) Rose.Primary else Rose.TextSecond,
-            fontSize = fsp(11.5f),
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
-        )
-    }
-}
-
-@Composable
 private fun RegisterGprGrid(
     regs: List<BpRegEntry>,
     onTapReg: (BpRegEntry) -> Unit
@@ -609,16 +588,16 @@ private fun RegisterGprGrid(
         regs.chunked(2).forEach { pair ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(GgSpacing.Md)
             ) {
                 pair.forEach { reg ->
                     val valColor = registerValueColor(reg)
                     Row(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(6.dp))
+                            .clip(GgShapes.Xs)
                             .clickable(onClick = { onTapReg(reg) })
-                            .padding(horizontal = 4.dp, vertical = 3.dp),
+                            .padding(horizontal = GgSpacing.Xs, vertical = 3.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
@@ -644,8 +623,10 @@ private fun RegisterGprGrid(
 }
 
 @Composable
-private fun RegisterEditModal(
+private fun RegisterEditCard(
     target: EditingRegTarget,
+    saving: Boolean,
+    onSavingChange: (Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
     val clipboard = LocalClipboardManager.current
@@ -653,7 +634,7 @@ private fun RegisterEditModal(
     var inputMode by remember(target) { mutableIntStateOf(0) }
     var textValue by remember(target) { mutableStateOf(target.hexValue) }
     var errorMsg by remember(target) { mutableStateOf("") }
-    var saving by remember(target) { mutableStateOf(false) }
+    val regTabSelectedBg = Rose.Primary.copy(alpha = if (Rose.IsDark) 0.30f else 0.20f)
 
     val formats = remember(target.isFp) {
         if (target.isFp) listOf(0 to "HEX", 2 to "F32", 3 to "F64")
@@ -725,160 +706,139 @@ private fun RegisterEditModal(
 
     val canJump = !target.isFp && java.lang.Long.compareUnsigned(target.numericValue, 0x10000L) >= 0
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Rose.Scrim)
-            .clickable(
-                indication = null,
-                interactionSource = remember { MutableInteractionSource() }
-            ) { if (!saving) onDismiss() },
-        contentAlignment = Alignment.Center
+    GgSurfaceCard(
+        modifier = Modifier.padding(horizontal = 22.dp),
+        shape = GgShapes.Xl,
+        contentPadding = PaddingValues(GgSpacing.Xl)
     ) {
-        AnimatedVisibility(
-            visible = true,
-            enter = dialogEnter(),
-            exit = dialogExit()
-        ) {
-            Column(
-                Modifier
-                    .padding(horizontal = 22.dp)
-                    .fillMaxWidth()
-                    .clickable(
-                        indication = null,
-                        interactionSource = remember { MutableInteractionSource() }
-                    ) {}
-                    .background(Rose.Card, RoundedCornerShape(16.dp))
-                    .border(1.dp, Rose.Divider, RoundedCornerShape(16.dp))
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+        Column(verticalArrangement = Arrangement.spacedBy(GgSpacing.MdPlus)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "${tr("修改寄存器")} ${target.regName}",
-                        color = Rose.Text,
-                        fontSize = fsp(16f),
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.weight(1f)
+                Text(
+                    text = "${tr("修改寄存器")} ${target.regName}",
+                    color = Rose.Text,
+                    fontSize = fsp(16f),
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+                GgBadge(
+                    text = "复制",
+                    textColor = Rose.TextSecond,
+                    backgroundColor = Rose.CardHigh,
+                    shape = GgShapes.Xs,
+                    horizontalPadding = GgSpacing.Md,
+                    verticalPadding = GgSpacing.Xs,
+                    onClick = {
+                        clipboard.setText(AnnotatedString(target.hexValue))
+                        Session.toast("已复制 ${target.regName} = ${target.hexValue}")
+                    }
+                )
+                if (canJump) {
+                    Spacer(Modifier.width(GgSpacing.Sm))
+                    GgBadge(
+                        text = "转到地址",
+                        textColor = Rose.Primary,
+                        backgroundColor = Rose.Primary.copy(alpha = 0.16f),
+                        shape = GgShapes.Xs,
+                        horizontalPadding = GgSpacing.Md,
+                        verticalPadding = GgSpacing.Xs,
+                        onClick = {
+                            onDismiss()
+                            Session.goto(target.numericValue, recordHistory = true, highlightTarget = true)
+                        }
                     )
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(7.dp))
-                            .background(Rose.CardHigh)
-                            .clickable {
-                                clipboard.setText(AnnotatedString(target.hexValue))
-                                Session.toast("已复制 ${target.regName} = ${target.hexValue}")
-                            }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                }
+            }
+
+            // 格式切换：HEX / DEC / F32 / F64
+            Row(horizontalArrangement = Arrangement.spacedBy(GgSpacing.Sm)) {
+                formats.forEach { (modeId, label) ->
+                    GgSegmentTab(
+                        label = label,
+                        selected = inputMode == modeId,
+                        height = 28.dp,
+                        shape = GgShapes.Sm,
+                        selectedBackground = regTabSelectedBg,
+                        fontSize = 11.5f,
+                        translate = false,
+                        horizontalPadding = GgSpacing.Lg
                     ) {
-                        Text(tr("复制"), color = Rose.TextSecond, fontSize = fsp(11.5f))
-                    }
-                    if (canJump) {
-                        Spacer(Modifier.width(6.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(7.dp))
-                                .background(Rose.Primary.copy(alpha = 0.16f))
-                                .clickable {
-                                    onDismiss()
-                                    Session.goto(target.numericValue, recordHistory = true, highlightTarget = true)
-                                }
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Text(tr("转到地址"), color = Rose.Primary, fontSize = fsp(11.5f), fontWeight = FontWeight.Medium)
-                        }
+                        inputMode = modeId
+                        textValue = formatValueForMode(modeId)
+                        errorMsg = ""
                     }
                 }
+            }
 
-                // 格式切换：HEX / DEC / F32 / F64
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    formats.forEach { (modeId, label) ->
-                        RegTabPill(label = label, selected = inputMode == modeId) {
-                            inputMode = modeId
-                            textValue = formatValueForMode(modeId)
-                            errorMsg = ""
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(44.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Rose.CardHigh)
-                        .border(
-                            width = 1.dp,
-                            color = if (errorMsg.isEmpty()) Rose.Primary.copy(alpha = 0.55f) else Rose.Red,
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                        .padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (inputMode == 0) {
+            GgInputBox(
+                borderColor = if (errorMsg.isEmpty()) Rose.Primary.copy(alpha = 0.55f) else Rose.Red,
+                prefix = if (inputMode == 0) {
+                    {
                         Text("0x", style = monoStyle(13, Rose.TextDim))
-                        Spacer(Modifier.width(4.dp))
+                        Spacer(Modifier.width(GgSpacing.Xs))
                     }
-                    BasicTextField(
-                        value = textValue,
-                        onValueChange = {
-                            textValue = it
-                            errorMsg = ""
-                        },
-                        singleLine = true,
-                        textStyle = monoStyle(14, Rose.Text),
-                        cursorBrush = SolidColor(Rose.Primary),
-                        modifier = Modifier.weight(1f)
-                    )
+                } else {
+                    null
                 }
+            ) {
+                BasicTextField(
+                    value = textValue,
+                    onValueChange = {
+                        textValue = it
+                        errorMsg = ""
+                    },
+                    singleLine = true,
+                    textStyle = monoStyle(14, Rose.Text),
+                    cursorBrush = SolidColor(Rose.Primary),
+                    modifier = Modifier.weight(1f)
+                )
+            }
 
-                if (errorMsg.isNotEmpty()) {
-                    Text(
-                        text = errorMsg,
-                        color = Rose.Red,
-                        fontSize = fsp(11.5f),
-                        lineHeight = fsp(15f)
-                    )
-                }
+            if (errorMsg.isNotEmpty()) {
+                Text(
+                    text = errorMsg,
+                    color = Rose.Red,
+                    fontSize = fsp(11.5f),
+                    lineHeight = fsp(15f)
+                )
+            }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(GgSpacing.MdPlus)
+            ) {
+                RoseButton(
+                    label = "取消",
+                    enabled = !saving,
+                    modifier = Modifier.weight(1f).height(GgControlHeight.Chip)
+                ) { onDismiss() }
+                RoseButton(
+                    label = "写入",
+                    filled = true,
+                    enabled = !saving,
+                    modifier = Modifier.weight(1f).height(GgControlHeight.Chip)
                 ) {
-                    RoseButton(
-                        label = "取消",
-                        enabled = !saving,
-                        modifier = Modifier.weight(1f).height(38.dp)
-                    ) { onDismiss() }
-                    RoseButton(
-                        label = "写入",
-                        filled = true,
-                        enabled = !saving,
-                        modifier = Modifier.weight(1f).height(38.dp)
-                    ) {
-                        val hexOut = resolveHexToWrite()
-                        if (hexOut == null) {
-                            errorMsg = tr("输入格式无效，请检查数值")
-                            return@RoseButton
-                        }
-                        saving = true
-                        Session.modifyBreakpointRegister(
-                            bpId = target.bpId,
-                            tid = target.tid,
-                            hitPc = target.hitPc,
-                            regName = target.regName,
-                            hexValue = hexOut,
-                            isFp = target.isFp
-                        ) { ok, err ->
-                            saving = false
-                            if (ok) {
-                                onDismiss()
-                            } else {
-                                errorMsg = err.ifBlank { tr("寄存器写回失败") }
-                            }
+                    val hexOut = resolveHexToWrite()
+                    if (hexOut == null) {
+                        errorMsg = tr("输入格式无效，请检查数值")
+                        return@RoseButton
+                    }
+                    onSavingChange(true)
+                    Session.modifyBreakpointRegister(
+                        bpId = target.bpId,
+                        tid = target.tid,
+                        hitPc = target.hitPc,
+                        regName = target.regName,
+                        hexValue = hexOut,
+                        isFp = target.isFp
+                    ) { ok, err ->
+                        onSavingChange(false)
+                        if (ok) {
+                            onDismiss()
+                        } else {
+                            errorMsg = err.ifBlank { tr("寄存器写回失败") }
                         }
                     }
                 }
@@ -907,9 +867,9 @@ private fun RegisterFprList(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(GgShapes.Xs)
                     .clickable { onTapFpr(fp) }
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                    .padding(horizontal = GgSpacing.Xs, vertical = GgSpacing.Xxs),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
@@ -938,10 +898,10 @@ private fun CallstackFrameRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(7.dp))
+            .clip(GgShapes.Xs)
             .background(Rose.CardHigh.copy(alpha = 0.72f))
             .clickable(onClick = onJump)
-            .padding(horizontal = 8.dp, vertical = 5.dp),
+            .padding(horizontal = GgSpacing.Md, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
@@ -953,7 +913,7 @@ private fun CallstackFrameRow(
             text = frame.addressHex,
             style = monoStyle(11.5f.toInt(), Rose.PointerX, weight = FontWeight.Medium)
         )
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(GgSpacing.Md))
         Text(
             text = if (frame.moduleName != "[anon]") "${frame.moduleName}+${frame.offsetHex}" else "[anon]",
             style = monoStyle(11, Rose.TextSecond),
@@ -961,75 +921,15 @@ private fun CallstackFrameRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
         )
-        Box(
-            modifier = Modifier
-                .size(24.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .clickable(onClick = onCopy),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Rounded.ContentCopy, null, tint = Rose.TextDim, modifier = Modifier.size(13.dp))
-        }
-    }
-}
-
-@Composable
-private fun DebugEmptyState(
-    attached: Boolean,
-    onAdd: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(54.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Rose.Primary.copy(alpha = 0.14f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.BugReport,
-                    contentDescription = tr("硬件断点调试"),
-                    tint = Rose.Primary,
-                    modifier = Modifier.size(28.dp)
-                )
-            }
-            Spacer(Modifier.height(12.dp))
-            Text(
-                text = tr("硬件断点调试器"),
-                color = Rose.Text,
-                fontSize = fsp(15.5f),
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = tr(
-                    if (attached) "支持硬件断点监听，命中后自动采集寄存器与调用链回溯"
-                    else "请先附加目标进程，然后从内存/搜索列表长按地址或点击上方 + 添加硬件断点"
-                ),
-                color = Rose.TextSecond,
-                fontSize = fsp(12f),
-                lineHeight = fsp(18f),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            )
-            Spacer(Modifier.height(16.dp))
-            RoseButton(
-                label = "添加硬件断点",
-                filled = true,
-                enabled = attached,
-                modifier = Modifier.height(38.dp)
-            ) {
-                onAdd()
-            }
-        }
+        GgIconActionButton(
+            icon = Icons.Rounded.ContentCopy,
+            contentDescription = "复制回溯帧",
+            tint = Rose.TextDim,
+            boxSize = 24.dp,
+            iconSize = 13.dp,
+            shape = GgShapes.Xs,
+            onClick = onCopy
+        )
     }
 }
 

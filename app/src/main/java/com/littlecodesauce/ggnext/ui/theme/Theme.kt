@@ -9,7 +9,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -61,6 +60,8 @@ object Rose {
     val Orange: Color get() = if (palette.isDark) Color(0xFFE8A97F) else Color(0xFF8C3A06)
     val Red: Color get() = if (palette.isDark) Color(0xFFE87F8A) else Color(0xFFA11826)
     val Frozen: Color get() = palette.primary
+    // 汇编操作码专属语义色（ARM / ARM64 / Thumb / x86 / x86_64 统一使用，与所有数值类型色明确区分）
+    val Opcode: Color get() = if (palette.isDark) Color(0xFFF2A65A) else Color(0xFFB84A00)
 
     // 跳转地址专属高亮背景与边框色
     val JumpHighlight: Color get() = if (palette.isDark) Color(0x4CB8A832) else Color(0x36C8A618)
@@ -71,6 +72,19 @@ object Rose {
     val PointerW: Color get() = if (palette.isDark) Color(0xFFB57BFF) else Color(0xFF5618AB)
     val PointerX: Color get() = if (palette.isDark) Color(0xFFFF66B2) else Color(0xFFA60E58)
     val PointerWX: Color get() = if (palette.isDark) Color(0xFFFF66FF) else Color(0xFF8A0C8A)
+
+    // 全局语义组件色（消除业务页面与组件中的硬编码 Color(0x...)）
+    val OnDarkInk: Color = Color(0xFF141013)
+    val CheckMark: Color get() = if (palette.isDark) OnDarkInk else Color(0xFFFFFFFF)
+    val VirtualBadge: Color get() = if (palette.isDark) Color(0xFF42A5F5) else Color(0xFF1565C0)
+    val ToastBg: Color get() = if (palette.isDark) Color(0xF21C181E) else Color(0xF8FFFFFF)
+    val ToastBrand: Color get() = if (palette.isDark) palette.textSecond else Color(0xFF6B6875)
+    val SwitchTrackOff: Color get() = if (palette.isDark) Color(0xFF322B32) else Color(0xFFD2D5E0)
+    val SwitchThumbOff: Color = Color(0xFFF5F2F4)
+    val SwitchThumbDisabled: Color = Color(0xFF888888)
+    val HeroRunningBg: Color get() = if (palette.isDark) Color(0xFF0E4A2F) else Color(0xFFDDF4E7)
+    val HeroRunningAccent: Color get() = if (palette.isDark) Color(0xFF8BE2B0) else Color(0xFF146C3E)
+    val HeroRunningSub: Color get() = if (palette.isDark) Color(0xFFA7DFBE) else Color(0xFF287C50)
 }
 
 fun regionColor(code: String): Color {

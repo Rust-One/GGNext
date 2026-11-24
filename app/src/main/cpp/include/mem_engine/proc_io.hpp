@@ -78,12 +78,6 @@ public:
         return writeMemory(addr, &val, sizeof(T));
     }
 
-    // String & Byte[] helpers
-    EngineErrc readStringUTF8(uintptr_t addr, std::string& outStr, size_t maxLen = 256) const;
-    EngineErrc writeStringUTF8(uintptr_t addr, const std::string& str, bool includeNull = true) const;
-    EngineErrc readStringUTF16(uintptr_t addr, std::u16string& outStr, size_t maxChars = 256) const;
-    EngineErrc writeStringUTF16(uintptr_t addr, const std::u16string& str, bool includeNull = true) const;
-
     static size_t querySystemPageSize() noexcept;
     static size_t querySystemIovMax() noexcept;
     static uint64_t detectKernelZeroPagePfn(size_t pageSize) noexcept;
@@ -126,18 +120,11 @@ public:
         int64_t maxVal = 0
     );
 
-    template <typename T>
-    void lockValue(uintptr_t addr, const T& val) {
-        lockAddress(addr, &val, sizeof(T));
-    }
-
     void unlockAddress(uintptr_t addr);
     void unlockAll();
     void setIntervalMs(uint32_t intervalMs);
     uint32_t intervalMs() const;
     void setPaused(bool paused);
-    bool isPaused() const;
-    size_t lockedCount() const;
 
 private:
     struct LockedItem {

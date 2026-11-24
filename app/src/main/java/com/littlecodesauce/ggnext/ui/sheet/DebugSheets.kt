@@ -2,7 +2,6 @@ package com.littlecodesauce.ggnext.ui.sheet
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,13 +12,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Keyboard
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,7 +31,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
@@ -44,6 +43,10 @@ import com.littlecodesauce.ggnext.engine.AsmEngineManager
 import com.littlecodesauce.ggnext.model.AsmArch
 import com.littlecodesauce.ggnext.model.BpType
 import com.littlecodesauce.ggnext.ui.components.BuiltInKeyboard
+import com.littlecodesauce.ggnext.ui.components.GgBadge
+import com.littlecodesauce.ggnext.ui.components.GgInputBox
+import com.littlecodesauce.ggnext.ui.components.GgSegmentTab
+import com.littlecodesauce.ggnext.ui.components.GgSettingSwitchRow
 import com.littlecodesauce.ggnext.ui.components.GgTextField
 import com.littlecodesauce.ggnext.ui.components.NextSheetCard
 import com.littlecodesauce.ggnext.ui.components.RoseButton
@@ -51,6 +54,10 @@ import com.littlecodesauce.ggnext.ui.components.clickableWithTooltip
 import com.littlecodesauce.ggnext.ui.components.fsp
 import com.littlecodesauce.ggnext.ui.components.monoStyle
 import com.littlecodesauce.ggnext.ui.components.tr
+import com.littlecodesauce.ggnext.ui.theme.GgBorder
+import com.littlecodesauce.ggnext.ui.theme.GgControlHeight
+import com.littlecodesauce.ggnext.ui.theme.GgShapes
+import com.littlecodesauce.ggnext.ui.theme.GgSpacing
 import com.littlecodesauce.ggnext.ui.theme.Rose
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -94,27 +101,37 @@ fun BreakpointSheet(ui: Ui) {
     ) {
         Column(
             modifier = Modifier.verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(GgSpacing.Lg)
         ) {
             // 1. 断点地址输入
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(tr("断点地址 (HEX)"), color = Rose.TextSecond, fontSize = fsp(12f))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(46.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Rose.CardHigh)
-                        .border(
-                            width = 1.dp,
-                            color = if (parsedAddr != null || addrTf.text.isBlank()) Rose.Primary.copy(alpha = 0.55f) else Rose.Red,
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                        .padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                GgInputBox(
+                    height = GgControlHeight.Row,
+                    shape = GgShapes.Md,
+                    borderColor = if (parsedAddr != null || addrTf.text.isBlank()) Rose.Primary.copy(alpha = 0.55f) else Rose.Red,
+                    prefix = {
+                        Text("0x", style = monoStyle(14, Rose.TextDim))
+                        Spacer(Modifier.width(GgSpacing.Xs))
+                    },
+                    trailing = {
+                        Box(
+                            Modifier
+                                .size(36.dp)
+                                .clickableWithTooltip(tooltip = tr("键盘")) {
+                                    showKeyboard = !showKeyboard
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Keyboard,
+                                contentDescription = tr("键盘"),
+                                tint = if (showKeyboard) Rose.Primary else Rose.TextSecond,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+                    }
                 ) {
-                    Text("0x", style = monoStyle(14, Rose.TextDim))
-                    Spacer(Modifier.width(4.dp))
                     GgTextField(
                         value = addrTf,
                         onValueChange = { addrTf = it },
@@ -124,154 +141,84 @@ fun BreakpointSheet(ui: Ui) {
                         suppressSystemKeyboard = showKeyboard,
                         placeholder = "输入十六进制地址…"
                     )
-                    Spacer(Modifier.width(6.dp))
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(7.dp))
-                            .background(if (showKeyboard) Rose.ChipSelected else Rose.Chip)
-                            .clickable { showKeyboard = !showKeyboard }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = tr(if (showKeyboard) "键盘" else "系统"),
-                            color = Rose.Text,
-                            fontSize = fsp(11f)
-                        )
-                    }
                 }
             }
 
             // 2. 断点类型：读写 / 只读 / 只写 / 执行
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(GgSpacing.Sm)) {
                 Text(tr("断点类型"), color = Rose.TextSecond, fontSize = fsp(12f))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(GgSpacing.Sm)
                 ) {
                     listOf(BpType.RW, BpType.READ, BpType.WRITE, BpType.EXEC).forEach { bpType ->
-                        val active = selectedType == bpType
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(38.dp)
-                                .clip(RoundedCornerShape(9.dp))
-                                .background(if (active) Rose.ChipSelected else Rose.CardHigh)
-                                .border(
-                                    width = if (active) 1.2.dp else 0.7.dp,
-                                    color = if (active) Rose.Primary else Rose.Divider,
-                                    shape = RoundedCornerShape(9.dp)
-                                )
-                                .clickableWithTooltip {
-                                    selectedType = bpType
-                                    if (bpType == BpType.EXEC && selectedSize < 4) {
-                                        selectedSize = 4
-                                    }
-                                },
-                            contentAlignment = Alignment.Center
+                        GgSegmentTab(
+                            label = bpType.label,
+                            selected = selectedType == bpType,
+                            modifier = Modifier.weight(1f),
+                            height = GgControlHeight.Chip,
+                            shape = GgShapes.Md,
+                            horizontalPadding = GgSpacing.Xs
                         ) {
-                            Text(
-                                text = tr(bpType.label),
-                                color = if (active) Rose.Primary else Rose.Text,
-                                fontSize = fsp(12.5f),
-                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal
-                            )
+                            selectedType = bpType
+                            if (bpType == BpType.EXEC && selectedSize < 4) {
+                                selectedSize = 4
+                            }
                         }
                     }
                 }
             }
 
             // 3. 断点大小：1 / 2 / 4 / 8 字节
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(GgSpacing.Sm)) {
                 Text(tr("监视大小 (字节)"), color = Rose.TextSecond, fontSize = fsp(12f))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(GgSpacing.Sm)
                 ) {
                     listOf(1, 2, 4, 8).forEach { sz ->
-                        val active = selectedSize == sz
                         val enabled = selectedType != BpType.EXEC || sz == 4
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(36.dp)
-                                .clip(RoundedCornerShape(9.dp))
-                                .background(
-                                    when {
-                                        !enabled -> Rose.CardHigh.copy(alpha = 0.4f)
-                                        active -> Rose.ChipSelected
-                                        else -> Rose.CardHigh
-                                    }
-                                )
-                                .border(
-                                    width = if (active && enabled) 1.2.dp else 0.7.dp,
-                                    color = if (active && enabled) Rose.Primary else Rose.Divider,
-                                    shape = RoundedCornerShape(9.dp)
-                                )
-                                .clickable(enabled = enabled) { selectedSize = sz },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "$sz ${tr("字节")}",
-                                color = when {
-                                    !enabled -> Rose.TextDim
-                                    active -> Rose.Primary
-                                    else -> Rose.Text
-                                },
-                                fontSize = fsp(12f),
-                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal
-                            )
-                        }
+                        GgSegmentTab(
+                            label = "$sz ${tr("字节")}",
+                            selected = selectedSize == sz,
+                            enabled = enabled,
+                            modifier = Modifier.weight(1f),
+                            height = 36.dp,
+                            shape = GgShapes.Md,
+                            fontSize = 12f,
+                            translate = false,
+                            horizontalPadding = GgSpacing.Xs
+                        ) { selectedSize = sz }
                     }
                 }
             }
 
-            // 4. 采集回溯与寄存器开关
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Rose.CardHigh)
-                    .clickable { captureCallstack = !captureCallstack }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        text = tr("采集寄存器与调用链回溯"),
-                        color = Rose.Text,
-                        fontSize = fsp(13f),
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = tr("命中断点时自动记录完整寄存器状态及栈回溯"),
-                        color = Rose.TextDim,
-                        fontSize = fsp(11f)
-                    )
-                }
-                Switch(
-                    checked = captureCallstack,
-                    onCheckedChange = { captureCallstack = it },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Rose.OnPrimary,
-                        checkedTrackColor = Rose.Primary
-                    )
-                )
-            }
+            // 4. 采集回溯与寄存器开关（统一采用 GgSettingSwitchRow + GgSwitch）
+            GgSettingSwitchRow(
+                title = "采集寄存器与调用链回溯",
+                subtitle = "命中断点时自动记录完整寄存器状态及栈回溯",
+                checked = captureCallstack,
+                onCheckedChange = { captureCallstack = it },
+                containerBackground = Rose.CardHigh,
+                shape = GgShapes.Md,
+                horizontalPadding = GgSpacing.Lg,
+                verticalPadding = GgSpacing.Md
+            )
 
-            // 6. 底部按钮
+            // 5. 底部按钮
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End
             ) {
-                RoseButton("取消", Modifier.width(84.dp).height(38.dp)) {
+                RoseButton("取消", Modifier.width(84.dp).height(GgControlHeight.Chip)) {
                     Session.popSheet()
                 }
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(GgSpacing.MdPlus))
                 RoseButton(
                     label = "确认添加",
                     filled = true,
                     enabled = parsedAddr != null && !ui.isBatchBusy,
-                    modifier = Modifier.width(104.dp).height(38.dp)
+                    modifier = Modifier.width(104.dp).height(GgControlHeight.Chip)
                 ) {
                     val addr = parsedAddr ?: return@RoseButton
                     Session.addBreakpoint(
@@ -345,16 +292,16 @@ fun WriteAsmSheet(ui: Ui) {
     ) {
         Column(
             modifier = Modifier.verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(GgSpacing.MdPlus)
         ) {
             if (!ui.asmPack.keystoneReady) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(9.dp))
+                        .clip(GgShapes.Md)
                         .background(Rose.Orange.copy(alpha = 0.14f))
-                        .border(0.8.dp, Rose.Orange.copy(alpha = 0.45f), RoundedCornerShape(9.dp))
-                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                        .border(GgBorder.Thin, Rose.Orange.copy(alpha = 0.45f), GgShapes.Md)
+                        .padding(horizontal = GgSpacing.MdPlus, vertical = GgSpacing.Md)
                 ) {
                     Text(
                         text = tr("未检测到 Keystone 汇编引擎：请先返回软件主页导入 ggnext-asm-engine-pack.zip 压缩包。"),
@@ -366,24 +313,18 @@ fun WriteAsmSheet(ui: Ui) {
             }
 
             // 目标地址
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(GgSpacing.Xs)) {
                 Text(tr("写入地址 (HEX)"), color = Rose.TextSecond, fontSize = fsp(12f))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(42.dp)
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(Rose.CardHigh)
-                        .border(
-                            width = 1.dp,
-                            color = if (parsedAddr != null) Rose.Divider else Rose.Red,
-                            shape = RoundedCornerShape(9.dp)
-                        )
-                        .padding(horizontal = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                GgInputBox(
+                    height = GgControlHeight.ButtonLg,
+                    shape = GgShapes.Md,
+                    borderColor = if (parsedAddr != null) Rose.Divider else Rose.Red,
+                    horizontalPadding = GgSpacing.MdPlus,
+                    prefix = {
+                        Text("0x", style = monoStyle(13, Rose.TextDim))
+                        Spacer(Modifier.width(GgSpacing.Xs))
+                    }
                 ) {
-                    Text("0x", style = monoStyle(13, Rose.TextDim))
-                    Spacer(Modifier.width(4.dp))
                     BasicTextField(
                         value = addrText,
                         onValueChange = { addrText = it.uppercase().filter { ch -> ch in "0123456789ABCDEF" } },
@@ -400,33 +341,20 @@ fun WriteAsmSheet(ui: Ui) {
                 Text(tr("指令集架构"), color = Rose.TextSecond, fontSize = fsp(12f))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(GgSpacing.Sm)
                 ) {
                     AsmArch.entries.forEach { arch ->
-                        val active = selectedArch == arch
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(34.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (active) Rose.ChipSelected else Rose.CardHigh)
-                                .border(
-                                    width = if (active) 1.2.dp else 0.7.dp,
-                                    color = if (active) Rose.Primary else Rose.Divider,
-                                    shape = RoundedCornerShape(8.dp)
-                                )
-                                .clickable { selectedArch = arch },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = arch.shortCode,
-                                style = monoStyle(
-                                    12,
-                                    if (active) Rose.Primary else Rose.Text,
-                                    weight = if (active) FontWeight.Bold else FontWeight.Normal
-                                )
-                            )
-                        }
+                        GgSegmentTab(
+                            label = arch.shortCode,
+                            selected = selectedArch == arch,
+                            modifier = Modifier.weight(1f),
+                            height = GgControlHeight.Compact,
+                            shape = GgShapes.Sm,
+                            fontSize = 12f,
+                            monospace = true,
+                            translate = false,
+                            horizontalPadding = GgSpacing.Xs
+                        ) { selectedArch = arch }
                     }
                 }
             }
@@ -436,34 +364,38 @@ fun WriteAsmSheet(ui: Ui) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(GgSpacing.Sm)
             ) {
                 quickSnippets.forEach { snippet ->
                     val label = snippet.replace('\n', ';')
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(7.dp))
-                            .background(Rose.Chip)
-                            .border(0.7.dp, Rose.Divider, RoundedCornerShape(7.dp))
-                            .clickable { codeText = snippet }
-                            .padding(horizontal = 9.dp, vertical = 5.dp)
-                    ) {
-                        Text(label, style = monoStyle(11, Rose.Cyan))
-                    }
+                    GgBadge(
+                        text = label,
+                        textColor = Rose.Cyan,
+                        backgroundColor = Rose.Chip,
+                        borderColor = Rose.Divider,
+                        shape = GgShapes.Xs,
+                        fontSize = 11f,
+                        monospace = true,
+                        fontWeight = FontWeight.Normal,
+                        horizontalPadding = 9.dp,
+                        verticalPadding = 5.dp,
+                        translate = false,
+                        onClick = { codeText = snippet }
+                    )
                 }
             }
 
             // 多行汇编输入框
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(GgSpacing.Xs)) {
                 Text(tr("汇编指令（支持分号 ; 或换行分隔多条）"), color = Rose.TextSecond, fontSize = fsp(12f))
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 84.dp, max = 140.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(GgShapes.Md)
                         .background(Rose.CardHigh)
-                        .border(1.dp, Rose.Primary.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                        .padding(10.dp)
+                        .border(GgBorder.Default, Rose.Primary.copy(alpha = 0.5f), GgShapes.Md)
+                        .padding(GgSpacing.MdPlus)
                 ) {
                     if (codeText.isEmpty()) {
                         Text(
@@ -485,18 +417,18 @@ fun WriteAsmSheet(ui: Ui) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(9.dp))
+                    .clip(GgShapes.Md)
                     .background(Rose.Row)
                     .border(
-                        width = 0.8.dp,
+                        width = GgBorder.Thin,
                         color = when {
                             previewError.isNotEmpty() -> Rose.Red.copy(alpha = 0.5f)
                             previewBytes != null -> Rose.Green.copy(alpha = 0.45f)
                             else -> Rose.Divider
                         },
-                        shape = RoundedCornerShape(9.dp)
+                        shape = GgShapes.Md
                     )
-                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                    .padding(horizontal = GgSpacing.MdPlus, vertical = GgSpacing.Md)
             ) {
                 when {
                     previewError.isNotEmpty() -> {
@@ -539,15 +471,15 @@ fun WriteAsmSheet(ui: Ui) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End
             ) {
-                RoseButton("取消", Modifier.width(84.dp).height(38.dp)) {
+                RoseButton("取消", Modifier.width(84.dp).height(GgControlHeight.Chip)) {
                     Session.popSheet()
                 }
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(GgSpacing.MdPlus))
                 RoseButton(
                     label = "写入汇编",
                     filled = true,
                     enabled = parsedAddr != null && previewBytes != null && previewBytes!!.isNotEmpty() && !ui.isBatchBusy,
-                    modifier = Modifier.width(104.dp).height(38.dp)
+                    modifier = Modifier.width(104.dp).height(GgControlHeight.Chip)
                 ) {
                     val addr = parsedAddr ?: return@RoseButton
                     Session.writeAssembly(addr, selectedArch, codeText) { ok, err ->

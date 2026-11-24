@@ -8,7 +8,6 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.littlecodesauce.ggnext.engine.Formatter
-import com.littlecodesauce.ggnext.model.ValueType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -119,19 +118,6 @@ object SettingsSpecs {
     /** 默认显示掩码 */
     const val DEFAULT_FORMAT_MASK: Int = Formatter.F_HEX or Formatter.F_DWORD or Formatter.F_FLOAT
 }
-
-/** 运行期配置快照 */
-data class RuntimeConfig(
-    val valueFormatMask: Int = SettingsSpecs.DEFAULT_FORMAT_MASK,
-    val savedFormatMask: Int = SettingsSpecs.DEFAULT_FORMAT_MASK,
-    val searchType: Int = ValueType.AUTO,
-    val searchSign: Int = ValueType.SIGN_EQUAL,
-    val memoryFrom: Long = 0L,
-    val memoryTo: Long = Long.MAX_VALUE,
-    val rangeMode: Int = 0,
-    val fuzzyEqualCount: Int = 1,
-    val filterEnabled: Boolean = false
-)
 
 class SettingsRepository(private val context: Context) {
 

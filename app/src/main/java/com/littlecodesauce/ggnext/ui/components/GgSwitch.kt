@@ -21,7 +21,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.littlecodesauce.ggnext.ui.theme.Rose
@@ -45,8 +44,7 @@ fun GgSwitch(
         targetValue = when {
             !enabled -> Rose.CardHigh.copy(alpha = 0.5f)
             checked -> Rose.Primary
-            Rose.IsDark -> Color(0xFF322B32)
-            else -> Color(0xFFD2D5E0)
+            else -> Rose.SwitchTrackOff
         },
         animationSpec = tween(160),
         label = "switchTrack"
@@ -60,24 +58,25 @@ fun GgSwitch(
 
     val thumbColor by animateColorAsState(
         targetValue = when {
-            !enabled -> Color(0xFF888888)
+            !enabled -> Rose.SwitchThumbDisabled
             checked -> Rose.OnPrimary
-            else -> Color(0xFFF5F2F4)
+            else -> Rose.SwitchThumbOff
         },
         animationSpec = tween(160),
         label = "switchThumbColor"
     )
 
+    val pillShape = RoundedCornerShape(height / 2)
     Box(
         modifier = modifier
             .width(width)
             .height(height)
-            .clip(RoundedCornerShape(height / 2))
+            .clip(pillShape)
             .background(trackBg)
             .border(
-                width = 1.dp,
+                width = com.littlecodesauce.ggnext.ui.theme.GgBorder.Default,
                 color = if (checked) Rose.Primary.copy(alpha = 0.5f) else Rose.Divider,
-                shape = RoundedCornerShape(height / 2)
+                shape = pillShape
             )
             .clickable(
                 indication = null,

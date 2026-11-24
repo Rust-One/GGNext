@@ -666,42 +666,6 @@ EngineErrc ProcIO::readBatchScattered(std::vector<BatchReadRange>& ranges) const
     return EngineErrc::OK;
 }
 
-EngineErrc ProcIO::readStringUTF8(uintptr_t addr, std::string& outStr, size_t maxLen) const {
-    outStr.clear();
-    if (maxLen == 0) return EngineErrc::OK;
-    std::vector<char> buf(maxLen, 0);
-    size_t bytesRead = 0;
-    EngineErrc rc = readMemory(addr, buf.data(), maxLen, &bytesRead);
-    if (rc != EngineErrc::OK && bytesRead == 0) return rc;
-    size_t actualLen = ::strnlen(buf.data(), bytesRead);
-    outStr.assign(buf.data(), actualLen);
-    return EngineErrc::OK;
-}
-
-EngineErrc ProcIO::writeStringUTF8(uintptr_t addr, const std::string& str, bool includeNull) const {
-    size_t len = includeNull ? (str.size() + 1) : str.size();
-    return writeMemory(addr, str.c_str(), len);
-}
-
-EngineErrc ProcIO::readStringUTF16(uintptr_t addr, std::u16string& outStr, size_t maxChars) const {
-    outStr.clear();
-    if (maxChars == 0) return EngineErrc::OK;
-    std::vector<char16_t> buf(maxChars, 0);
-    size_t bytesRead = 0;
-    EngineErrc rc = readMemory(addr, buf.data(), maxChars * sizeof(char16_t), &bytesRead);
-    if (rc != EngineErrc::OK && bytesRead < sizeof(char16_t)) return rc;
-    size_t charsRead = bytesRead / sizeof(char16_t);
-    size_t len = 0;
-    while (len < charsRead && buf[len] != 0) ++len;
-    outStr.assign(buf.data(), len);
-    return EngineErrc::OK;
-}
-
-EngineErrc ProcIO::writeStringUTF16(uintptr_t addr, const std::u16string& str, bool includeNull) const {
-    size_t chars = includeNull ? (str.size() + 1) : str.size();
-    return writeMemory(addr, str.c_str(), chars * sizeof(char16_t));
-}
-
 // ============================================================================
 // ValueLocker Implementation (Unified Multi-Mode C++ Worker)
 // ============================================================================
@@ -784,16 +748,6 @@ void ValueLocker::setPaused(bool paused) {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_paused = paused;
     m_cv.notify_one();
-}
-
-bool ValueLocker::isPaused() const {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    return m_paused;
-}
-
-size_t ValueLocker::lockedCount() const {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    return m_items.size();
 }
 
 void ValueLocker::applyFreezeStep(LockedItem& item) {

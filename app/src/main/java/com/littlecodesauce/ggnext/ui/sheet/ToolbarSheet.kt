@@ -5,20 +5,16 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -32,7 +28,6 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -47,7 +42,9 @@ import com.littlecodesauce.ggnext.core.NextTab
 import com.littlecodesauce.ggnext.core.Session
 import com.littlecodesauce.ggnext.core.Sheet
 import com.littlecodesauce.ggnext.core.Ui
+import com.littlecodesauce.ggnext.ui.components.GgBadge
 import com.littlecodesauce.ggnext.ui.components.GgIcons
+import com.littlecodesauce.ggnext.ui.components.GgSegmentTab
 import com.littlecodesauce.ggnext.ui.components.NextSheetCard
 import com.littlecodesauce.ggnext.ui.components.RoseButton
 import com.littlecodesauce.ggnext.ui.components.clickableWithTooltip
@@ -57,14 +54,18 @@ import com.littlecodesauce.ggnext.ui.components.tr
 import com.littlecodesauce.ggnext.ui.model.ALL_TOOLS
 import com.littlecodesauce.ggnext.ui.model.ToolId
 import com.littlecodesauce.ggnext.ui.model.toolIcon
+import com.littlecodesauce.ggnext.ui.theme.GgBorder
+import com.littlecodesauce.ggnext.ui.theme.GgControlHeight
+import com.littlecodesauce.ggnext.ui.theme.GgIconSize
+import com.littlecodesauce.ggnext.ui.theme.GgShapes
+import com.littlecodesauce.ggnext.ui.theme.GgSpacing
 import com.littlecodesauce.ggnext.ui.theme.Motion
 import com.littlecodesauce.ggnext.ui.theme.Rose
-import kotlinx.coroutines.launch
+
+private val TOOLBAR_TABS = listOf(NextTab.SEARCH_LIST, NextTab.SAVED_LIST, NextTab.MEMORY, NextTab.DEBUG)
 
 /**
  * 工具栏顺序管理弹窗 (ToolbarSheet)
- *
- * 核心升级（满足用户需求 4）：
  * 1. 支持分为「固定工具栏 (右侧常驻)」与「流动工具栏 (滑动栏)」两大部分展示；
  * 2. 固定工具栏里的按钮点击后不再在流动工具栏里显示；
  * 3. 固定工具栏与流动工具栏均支持长按拖动快捷调整位置；
@@ -92,9 +93,8 @@ fun ToolbarSheet(ui: Ui) {
     var fingerYInFlowing by remember { mutableFloatStateOf(0f) }
 
     val scrollState = rememberScrollState()
-    val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
-    val rowHeightPx = with(density) { 46.dp.toPx() }
+    val rowHeightPx = with(density) { GgControlHeight.Row.toPx() }
     val rowSpacingPx = with(density) { 5.dp.toPx() }
     val rowStepPx = rowHeightPx + rowSpacingPx
 
@@ -106,35 +106,14 @@ fun ToolbarSheet(ui: Ui) {
     ) {
         Column {
             // Tab 切换（搜索 / 保存 / 内存 / 调试）
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(NextTab.SEARCH_LIST, NextTab.SAVED_LIST, NextTab.MEMORY, NextTab.DEBUG).forEach { t ->
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .height(40.dp)
-                            .background(
-                                if (tab == t) Rose.ChipSelected else Rose.CardHigh,
-                                RoundedCornerShape(10.dp)
-                            )
-                            .clickableWithTooltip {
-                                draggingPinnedTool = null
-                                draggingFlowingTool = null
-                                fingerYInPinned = 0f
-                                fingerYInFlowing = 0f
-                                tab = t
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            tr(t.label),
-                            color = if (tab == t) Rose.Text else Rose.TextSecond,
-                            fontSize = fsp(13.5f),
-                            fontWeight = if (tab == t) FontWeight.Bold else FontWeight.Normal
-                        )
-                    }
-                }
+            ToolbarTabSwitcher(selected = tab) { t ->
+                draggingPinnedTool = null
+                draggingFlowingTool = null
+                fingerYInPinned = 0f
+                fingerYInFlowing = 0f
+                tab = t
             }
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(GgSpacing.MdPlus))
 
             Column(
                 Modifier
@@ -144,16 +123,16 @@ fun ToolbarSheet(ui: Ui) {
             ) {
                 // ==================== 第一区：固定工具栏 (右侧常驻) ====================
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = GgSpacing.Xs, vertical = GgSpacing.Xxs),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         Icons.Rounded.PushPin,
                         contentDescription = null,
                         tint = Rose.Primary,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(GgIconSize.Sm)
                     )
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(GgSpacing.Sm))
                     Text(
                         tr("固定工具栏"),
                         color = Rose.Primary,
@@ -167,7 +146,7 @@ fun ToolbarSheet(ui: Ui) {
                         fontSize = fsp(11.5f)
                     )
                 }
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(GgSpacing.Xs))
 
                 Column(
                     Modifier
@@ -231,13 +210,13 @@ fun ToolbarSheet(ui: Ui) {
                                         scaleY = scale
                                         this.translationY = translationY
                                     }
-                                    .height(46.dp)
-                                    .background(bg, RoundedCornerShape(10.dp))
+                                    .height(GgControlHeight.Row)
+                                    .background(bg, GgShapes.Md)
                                     .then(
-                                        if (isDragging) Modifier.border(1.dp, Rose.Primary, RoundedCornerShape(10.dp))
+                                        if (isDragging) Modifier.border(GgBorder.Default, Rose.Primary, GgShapes.Md)
                                         else Modifier
                                     )
-                                    .padding(horizontal = 12.dp),
+                                    .padding(horizontal = GgSpacing.Lg),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
@@ -251,7 +230,7 @@ fun ToolbarSheet(ui: Ui) {
                                     tint = if (isDragging) Rose.Primary else Rose.Primary.copy(alpha = 0.85f),
                                     modifier = Modifier.size(19.dp)
                                 )
-                                Spacer(Modifier.width(10.dp))
+                                Spacer(Modifier.width(GgSpacing.MdPlus))
                                 Text(
                                     tr(id.label),
                                     color = Rose.Text,
@@ -261,18 +240,17 @@ fun ToolbarSheet(ui: Ui) {
 
                                 // 取消固定按钮（移回流动工具栏）
                                 if (pinnedList.size > 1) {
-                                    Box(
-                                        Modifier
-                                            .background(Rose.CardHigh, RoundedCornerShape(6.dp))
-                                            .clickableWithTooltip {
-                                                Session.unpinTool(tab, id)
-                                            }
-                                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(tr("移出"), color = Rose.TextSecond, fontSize = fsp(11.5f))
-                                    }
-                                    Spacer(Modifier.width(8.dp))
+                                    GgBadge(
+                                        text = "移出",
+                                        textColor = Rose.TextSecond,
+                                        backgroundColor = Rose.CardHigh,
+                                        shape = GgShapes.Xs,
+                                        fontWeight = FontWeight.Normal,
+                                        horizontalPadding = GgSpacing.Md,
+                                        verticalPadding = GgSpacing.Xs,
+                                        onClick = { Session.unpinTool(tab, id) }
+                                    )
+                                    Spacer(Modifier.width(GgSpacing.Md))
                                 }
 
                                 Icon(
@@ -290,16 +268,16 @@ fun ToolbarSheet(ui: Ui) {
 
                 // ==================== 第二区：流动工具栏 (滑动栏) ====================
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = GgSpacing.Xs, vertical = GgSpacing.Xxs),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         GgIcons.MenuThreeLines,
                         contentDescription = null,
                         tint = Rose.TextSecond,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(GgIconSize.Sm)
                     )
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(GgSpacing.Sm))
                     Text(
                         tr("流动工具栏"),
                         color = Rose.Text,
@@ -313,7 +291,7 @@ fun ToolbarSheet(ui: Ui) {
                         fontSize = fsp(11.5f)
                     )
                 }
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(GgSpacing.Xs))
 
                 Column(
                     Modifier
@@ -345,7 +323,6 @@ fun ToolbarSheet(ui: Ui) {
                                     val targetIndex = (fingerYInFlowing / rowStepPx).toInt().coerceIn(0, curList.lastIndex)
                                     val curIndex = curList.indexOf(activeTool)
                                     if (curIndex != -1 && targetIndex != curIndex) {
-                                        // 转换为完整 tools 列表中的索引
                                         val fullList = ui.tools[currentTabState] ?: Session.toolList(currentTabState)
                                         val fullFrom = fullList.indexOf(activeTool)
                                         val targetTool = curList[targetIndex]
@@ -384,13 +361,13 @@ fun ToolbarSheet(ui: Ui) {
                                         scaleY = scale
                                         this.translationY = translationY
                                     }
-                                    .height(46.dp)
-                                    .background(bg, RoundedCornerShape(10.dp))
+                                    .height(GgControlHeight.Row)
+                                    .background(bg, GgShapes.Md)
                                     .then(
-                                        if (isDragging) Modifier.border(1.dp, Rose.Primary, RoundedCornerShape(10.dp))
+                                        if (isDragging) Modifier.border(GgBorder.Default, Rose.Primary, GgShapes.Md)
                                         else Modifier
                                     )
-                                    .padding(horizontal = 12.dp),
+                                    .padding(horizontal = GgSpacing.Lg),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
@@ -404,7 +381,7 @@ fun ToolbarSheet(ui: Ui) {
                                     tint = if (isDragging) Rose.Primary else Rose.TextSecond,
                                     modifier = Modifier.size(19.dp)
                                 )
-                                Spacer(Modifier.width(10.dp))
+                                Spacer(Modifier.width(GgSpacing.MdPlus))
                                 Text(
                                     tr(id.label),
                                     color = Rose.Text,
@@ -413,18 +390,17 @@ fun ToolbarSheet(ui: Ui) {
                                 )
 
                                 // 固定到右侧常驻栏按钮
-                                Box(
-                                    Modifier
-                                        .background(Rose.CardHigh, RoundedCornerShape(6.dp))
-                                        .clickableWithTooltip {
-                                            Session.pinTool(tab, id)
-                                        }
-                                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(tr("+固定"), color = Rose.Primary, fontSize = fsp(11.5f), fontWeight = FontWeight.SemiBold)
-                                }
-                                Spacer(Modifier.width(8.dp))
+                                GgBadge(
+                                    text = "+固定",
+                                    textColor = Rose.Primary,
+                                    backgroundColor = Rose.CardHigh,
+                                    shape = GgShapes.Xs,
+                                    fontWeight = FontWeight.SemiBold,
+                                    horizontalPadding = GgSpacing.Md,
+                                    verticalPadding = GgSpacing.Xs,
+                                    onClick = { Session.pinTool(tab, id) }
+                                )
+                                Spacer(Modifier.width(GgSpacing.Md))
 
                                 Icon(
                                     imageVector = GgIcons.DragUpDown,
@@ -438,8 +414,8 @@ fun ToolbarSheet(ui: Ui) {
                 }
             }
 
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Spacer(Modifier.height(GgSpacing.MdPlus))
+            Row(horizontalArrangement = Arrangement.spacedBy(GgSpacing.Md)) {
                 RoseButton("增删工具", Modifier.weight(1f)) { Session.openSheet(Sheet.TOOLBAR_PICK) }
                 RoseButton("重置", Modifier.weight(1f)) { Session.resetTools(tab) }
                 RoseButton("完成", Modifier.weight(1f), filled = true) { Session.closeSheet() }
@@ -463,32 +439,18 @@ fun ToolbarPickSheet(ui: Ui) {
         maxBodyHeight = 660
     ) {
         Column {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(NextTab.SEARCH_LIST, NextTab.SAVED_LIST, NextTab.MEMORY, NextTab.DEBUG).forEach { t ->
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .height(40.dp)
-                            .background(
-                                if (tab == t) Rose.ChipSelected else Rose.CardHigh,
-                                RoundedCornerShape(9.dp)
-                            )
-                            .clickableWithTooltip { tab = t },
-                        contentAlignment = Alignment.Center
-                    ) { Text(tr(t.label), color = if (tab == t) Rose.Text else Rose.TextSecond, fontSize = fsp(13f)) }
-                }
-            }
-            Spacer(Modifier.height(10.dp))
+            ToolbarTabSwitcher(selected = tab) { tab = it }
+            Spacer(Modifier.height(GgSpacing.MdPlus))
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
                 ALL_TOOLS.forEach { id ->
                     val on = current.contains(id)
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .height(46.dp)
+                            .height(GgControlHeight.Row)
                             .background(
                                 if (on) Rose.ChipSelected else Rose.CardHigh,
-                                RoundedCornerShape(9.dp)
+                                GgShapes.Md
                             )
                             .clickableWithTooltip { Session.toggleTool(tab, id) }
                             .padding(horizontal = 14.dp),
@@ -497,24 +459,46 @@ fun ToolbarPickSheet(ui: Ui) {
                         Icon(
                             toolIcon(id), null,
                             tint = if (on) Rose.Primary else Rose.TextDim,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(GgIconSize.Md)
                         )
-                        Spacer(Modifier.width(12.dp))
+                        Spacer(Modifier.width(GgSpacing.Lg))
                         Text(tr(id.label), color = Rose.Text, fontSize = fsp(14f), modifier = Modifier.weight(1f))
                         Icon(
                             if (on) Icons.Rounded.Remove else Icons.Rounded.Add,
                             null,
                             tint = Rose.TextSecond,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(GgIconSize.Md)
                         )
                     }
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(GgSpacing.Xs))
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(GgSpacing.Md))
             RoseButton("返回排序", Modifier.fillMaxWidth(), filled = true) {
                 Session.openSheet(Sheet.TOOLBAR_ORDER)
             }
+        }
+    }
+}
+
+@Composable
+private fun ToolbarTabSwitcher(
+    selected: NextTab,
+    onSelect: (NextTab) -> Unit
+) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GgSpacing.Sm)) {
+        TOOLBAR_TABS.forEach { t ->
+            GgSegmentTab(
+                label = t.label,
+                selected = selected == t,
+                modifier = Modifier.weight(1f),
+                height = GgControlHeight.Button,
+                shape = GgShapes.Md,
+                accent = Rose.Text,
+                showBorder = false,
+                fontSize = 13.5f,
+                horizontalPadding = GgSpacing.Xs
+            ) { onSelect(t) }
         }
     }
 }

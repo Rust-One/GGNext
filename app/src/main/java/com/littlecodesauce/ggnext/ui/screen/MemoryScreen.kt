@@ -13,15 +13,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Code
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,7 +31,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.littlecodesauce.ggnext.core.Session
 import com.littlecodesauce.ggnext.core.Sheet
@@ -43,14 +38,16 @@ import com.littlecodesauce.ggnext.core.Ui
 import com.littlecodesauce.ggnext.engine.Formatter
 import com.littlecodesauce.ggnext.model.MemoryItem
 import com.littlecodesauce.ggnext.ui.components.GgCheckBox
+import com.littlecodesauce.ggnext.ui.components.GgEmptyState
 import com.littlecodesauce.ggnext.ui.components.VerticalFastScrollbar
 import com.littlecodesauce.ggnext.ui.components.clickableLongPress
 import com.littlecodesauce.ggnext.ui.components.clickableWithTooltip
-import com.littlecodesauce.ggnext.ui.components.fsp
 import com.littlecodesauce.ggnext.ui.components.monoStyle
 import com.littlecodesauce.ggnext.ui.components.rememberPersistentLazyListState
 import com.littlecodesauce.ggnext.ui.components.tr
 import com.littlecodesauce.ggnext.ui.components.valueText
+import com.littlecodesauce.ggnext.ui.theme.GgBorder
+import com.littlecodesauce.ggnext.ui.theme.GgShapes
 import com.littlecodesauce.ggnext.ui.theme.Motion
 import com.littlecodesauce.ggnext.ui.theme.Rose
 import com.littlecodesauce.ggnext.ui.theme.pointerColor
@@ -108,7 +105,10 @@ fun MemoryScreen(ui: Ui) {
             }
         )
         if (ui.memoryRows.isEmpty()) {
-            EmptyMemory()
+            GgEmptyState(
+                icon = Icons.Rounded.Code,
+                message = "内存编辑器\n使用工具栏「转到地址」加载内存视图。"
+            )
         } else {
             Box(Modifier.fillMaxSize()) {
                 LazyColumn(
@@ -174,9 +174,9 @@ private fun MemoryBoundaryJumpButton(
             .scale(scale)
             .background(
                 Rose.CardHigh.copy(alpha = (bgOpacity * 0.95f).coerceIn(0.25f, 1.0f)),
-                RoundedCornerShape(8.dp)
+                GgShapes.Sm
             )
-            .border(1.dp, Rose.Primary.copy(alpha = 0.40f), RoundedCornerShape(8.dp))
+            .border(GgBorder.Default, Rose.Primary.copy(alpha = 0.40f), GgShapes.Sm)
             .clickableWithTooltip(
                 onPressChange = { pressed = it },
                 onClick = { Session.gotoBoundary(targetAddress, isUpward = isUpward) }
@@ -216,7 +216,7 @@ private fun MemoryMiniBar(
         Box(
             Modifier
                 .scale(addrScale)
-                .background(Rose.CardHigh.copy(alpha = ui.metrics.bgOpacity.coerceIn(0.25f, 1.0f)), RoundedCornerShape(6.dp))
+                .background(Rose.CardHigh.copy(alpha = ui.metrics.bgOpacity.coerceIn(0.25f, 1.0f)), GgShapes.Xs)
                 .clickableWithTooltip(
                     onPressChange = { addrPressed = it },
                     onClick = onLocateAddress
@@ -236,7 +236,7 @@ private fun MemoryMiniBar(
             Modifier
                 .background(
                     if (hasAsmFormat) Rose.ChipSelected else Rose.CardHigh.copy(alpha = ui.metrics.bgOpacity.coerceIn(0.25f, 1.0f)),
-                    RoundedCornerShape(6.dp)
+                    GgShapes.Xs
                 )
                 .clickableWithTooltip(tooltip = tr("值格式")) {
                     Session.openSheet(Sheet.VALUE_FORMAT)
@@ -289,9 +289,9 @@ private fun MemoryRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .background(rowBgColor, RoundedCornerShape(8.dp))
+            .background(rowBgColor, GgShapes.Sm)
             .then(
-                if (isJumpTarget) Modifier.border(1.dp, Rose.JumpBorder, RoundedCornerShape(8.dp))
+                if (isJumpTarget) Modifier.border(GgBorder.Default, Rose.JumpBorder, GgShapes.Sm)
                 else Modifier
             )
             .clickableLongPress(
@@ -355,11 +355,11 @@ private fun MemoryRow(
                 ) {
                     Text(
                         text = "${asmArch?.shortCode ?: "ASM"} ",
-                        style = monoStyle(10.5f.toInt(), Rose.Primary, weight = FontWeight.Bold)
+                        style = monoStyle(10.5f.toInt(), Rose.Opcode.copy(alpha = 0.85f), weight = FontWeight.Bold)
                     )
                     Text(
                         text = resolvedAsm,
-                        style = monoStyle(12, Rose.Cyan, weight = FontWeight.Medium),
+                        style = monoStyle(12, Rose.Opcode, weight = FontWeight.Medium),
                         maxLines = 1
                     )
                 }
@@ -378,26 +378,5 @@ private fun MemoryRow(
                 style = monoStyle(11, regColor, weight = FontWeight.SemiBold)
             )
         }
-    }
-}
-
-@Composable
-private fun EmptyMemory() {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(Icons.Rounded.Code, null, tint = Rose.TextDim, modifier = Modifier.size(46.dp))
-        Spacer(Modifier.height(14.dp))
-        Text(
-            tr("内存编辑器\n使用工具栏「转到地址」加载内存视图。"),
-            color = Rose.TextSecond,
-            fontSize = fsp(14f),
-            lineHeight = fsp(21f),
-            textAlign = TextAlign.Center
-        )
     }
 }

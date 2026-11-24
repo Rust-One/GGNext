@@ -11,7 +11,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PixelFormat
-import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
@@ -30,7 +29,6 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.littlecodesauce.ggnext.MainActivity
 import com.littlecodesauce.ggnext.core.Session
-import com.littlecodesauce.ggnext.core.Sheet
 import com.littlecodesauce.ggnext.data.AppLog
 import com.littlecodesauce.ggnext.ui.theme.AppFontCache
 import kotlinx.coroutines.CoroutineScope
@@ -620,7 +618,6 @@ class FloatingIconService : Service() {
         }
         var showProgress = false
         var isPressedState = false
-        private val rect = RectF()
 
         fun setCustomTypeface(tf: Typeface?) {
             fg.typeface = tf?.let { Typeface.create(it, Typeface.BOLD) } ?: Typeface.DEFAULT_BOLD

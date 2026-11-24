@@ -91,9 +91,6 @@ class MemoryEngine {
     val supportsNativeScan: Boolean
         get() = activeBackend?.supportsNativeScan == true
 
-    private val isNativeEngineActive: Boolean
-        get() = supportsNativeScan
-
     private val isNativeLockerActive: Boolean
         get() = activeBackend?.supportsNativeLocker == true
 

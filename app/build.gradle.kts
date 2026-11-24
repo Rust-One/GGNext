@@ -9,17 +9,19 @@ plugins {
 android {
     namespace = "com.littlecodesauce.ggnext"
     compileSdk = 35
+    ndkVersion = "27.2.12479018"
 
     defaultConfig {
-        applicationId = "com.littlecodesauce.ggnext"
+        applicationId = "com.ggnext.aimod"
         minSdk = 24
         targetSdk = 35
-        versionCode = 6
-        versionName = "0.6"
+        versionCode = 13
+        versionName = "0.9.4"
         vectorDrawables.useSupportLibrary = true
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+            // 仅保留 arm64：大幅缩小包体并缩短原生编译时间
+            abiFilters += listOf("arm64-v8a")
         }
         externalNativeBuild {
             cmake {

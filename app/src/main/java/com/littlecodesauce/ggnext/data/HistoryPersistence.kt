@@ -14,10 +14,6 @@ data class SearchHistoryEntry(
     val pinned: Boolean = false
 )
 
-data class GotoHistoryEntry(
-    val addressHex: String
-)
-
 data class ScriptHistoryEntry(
     val path: String,
     val pinned: Boolean = false,
@@ -27,9 +23,8 @@ data class ScriptHistoryEntry(
 object HistoryPersistence {
 
     val DEFAULT_SCRIPT_HISTORY: List<ScriptHistoryEntry> = listOf(
-        ScriptHistoryEntry("/sdcard/Download/script.lua"),
-        ScriptHistoryEntry("/sdcard/GGNext/scripts/main.lua"),
-        ScriptHistoryEntry("/sdcard/GGNext/scripts/pointer_scan.lua")
+        ScriptHistoryEntry(AppPaths.SCRIPT_FILE),
+        ScriptHistoryEntry("${AppPaths.SCRIPTS_DIR}/pointer_scan.lua")
     )
 
     // ---------------- Search History ----------------

@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
@@ -38,7 +37,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -51,6 +49,7 @@ import com.littlecodesauce.ggnext.data.AppIconCache
 import com.littlecodesauce.ggnext.data.ProcessScanner
 import com.littlecodesauce.ggnext.model.TargetProcess
 import com.littlecodesauce.ggnext.ui.components.Chip
+import com.littlecodesauce.ggnext.ui.components.GgInputBox
 import com.littlecodesauce.ggnext.ui.components.GgTextField
 import com.littlecodesauce.ggnext.ui.components.ItemEnter
 import com.littlecodesauce.ggnext.ui.components.NextSheetCard
@@ -58,6 +57,9 @@ import com.littlecodesauce.ggnext.ui.components.VerticalFastScrollbar
 import com.littlecodesauce.ggnext.ui.components.clickableNoRipple
 import com.littlecodesauce.ggnext.ui.components.fsp
 import com.littlecodesauce.ggnext.ui.components.monoStyle
+import com.littlecodesauce.ggnext.ui.theme.GgControlHeight
+import com.littlecodesauce.ggnext.ui.theme.GgShapes
+import com.littlecodesauce.ggnext.ui.theme.GgSpacing
 import com.littlecodesauce.ggnext.ui.theme.Motion
 import com.littlecodesauce.ggnext.ui.theme.Rose
 
@@ -101,17 +103,17 @@ fun ProcessSheet(ui: Ui) {
         maxBodyHeight = 640
     ) {
         Column {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 4.dp)
-                    .height(40.dp)
-                    .background(Rose.CardHigh, RoundedCornerShape(10.dp))
-                    .padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
+            GgInputBox(
+                modifier = Modifier.padding(horizontal = GgSpacing.Xs, vertical = GgSpacing.Xs),
+                height = GgControlHeight.Button,
+                shape = GgShapes.Md,
+                borderWidth = 0.dp,
+                horizontalPadding = GgSpacing.Lg,
+                prefix = {
+                    Icon(Icons.Rounded.Search, null, tint = Rose.TextDim, modifier = Modifier.size(17.dp))
+                    Spacer(Modifier.width(GgSpacing.Md))
+                }
             ) {
-                Icon(Icons.Rounded.Search, null, tint = Rose.TextDim, modifier = Modifier.size(17.dp))
-                Spacer(Modifier.width(8.dp))
                 GgTextField(
                     value = query,
                     onValueChange = { query = it },
@@ -183,7 +185,7 @@ private fun ProcessRow(p: TargetProcess, index: Int, onClick: () -> Unit) {
             Modifier
                 .fillMaxWidth()
                 .scale(scale)
-                .background(Rose.Row, RoundedCornerShape(12.dp))
+                .background(Rose.Row, GgShapes.Lg)
                 .clickableNoRipple(interaction, onClick = onClick)
                 .padding(horizontal = 12.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -200,7 +202,7 @@ private fun ProcessRow(p: TargetProcess, index: Int, onClick: () -> Unit) {
                 if (p.isVirtual) {
                     Text(
                         text = "*",
-                        color = if (Rose.IsDark) Color(0xFF42A5F5) else Color(0xFF1565C0),
+                        color = Rose.VirtualBadge,
                         fontSize = fsp(16f),
                         fontWeight = FontWeight.ExtraBold
                     )
@@ -232,7 +234,7 @@ private fun AppIcon(p: TargetProcess) {
     Box(
         Modifier
             .size(42.dp)
-            .clip(RoundedCornerShape(11.dp))
+            .clip(GgShapes.Lg)
             .background(Rose.CardHigh),
         contentAlignment = Alignment.Center
     ) {
@@ -257,16 +259,16 @@ private fun SkeletonList() {
                     .fillMaxWidth()
                     .height(58.dp)
                     .alpha(alpha)
-                    .background(Rose.Row, RoundedCornerShape(12.dp))
+                    .background(Rose.Row, GgShapes.Lg)
                     .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(Modifier.size(42.dp).background(Rose.CardHigh, RoundedCornerShape(11.dp)))
+                Box(Modifier.size(42.dp).background(Rose.CardHigh, GgShapes.Lg))
                 Spacer(Modifier.width(12.dp))
                 Column {
-                    Box(Modifier.width(140.dp).height(11.dp).background(Rose.CardHigh, RoundedCornerShape(4.dp)))
+                    Box(Modifier.width(140.dp).height(11.dp).background(Rose.CardHigh, GgShapes.Xxs))
                     Spacer(Modifier.height(7.dp))
-                    Box(Modifier.width(84.dp).height(9.dp).background(Rose.CardHigh, RoundedCornerShape(4.dp)))
+                    Box(Modifier.width(84.dp).height(9.dp).background(Rose.CardHigh, GgShapes.Xxs))
                 }
             }
         }

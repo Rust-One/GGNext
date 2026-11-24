@@ -98,25 +98,6 @@ inline const char* regionFlagToTag(uint32_t flag) noexcept {
     }
 }
 
-inline uint32_t tagToRegionFlag(const std::string& code) noexcept {
-    if (code == "Jh") return RegionFlag::JH;
-    if (code == "Ch") return RegionFlag::CH;
-    if (code == "Ca") return RegionFlag::CA;
-    if (code == "Cd") return RegionFlag::CD;
-    if (code == "Cb") return RegionFlag::CB;
-    if (code == "A")  return RegionFlag::A;
-    if (code == "J")  return RegionFlag::J;
-    if (code == "S")  return RegionFlag::S;
-    if (code == "As") return RegionFlag::AS;
-    if (code == "Xa") return RegionFlag::XA;
-    if (code == "Xs") return RegionFlag::XS;
-    if (code == "V")  return RegionFlag::V;
-    if (code == "Ps") return RegionFlag::PS;
-    if (code == "B")  return RegionFlag::B;
-    if (code == "O")  return RegionFlag::O;
-    return RegionFlag::NONE;
-}
-
 // ============================================================================
 // 2. Supported Data Types
 // ============================================================================

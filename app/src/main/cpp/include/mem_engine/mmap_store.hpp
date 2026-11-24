@@ -41,8 +41,6 @@ public:
     bool empty() const noexcept { return m_count == 0; }
     bool isFull() const noexcept { return m_count >= MAX_STORED_CANDIDATES; }
     bool isSpilledToDisk() const noexcept { return m_isMmap; }
-    size_t heapBytesUsed() const noexcept { return m_ramVec.capacity() * sizeof(CandidateEntry); }
-    size_t mmapBytesUsed() const noexcept { return m_isMmap ? m_mmapCapacityBytes : 0; }
 
     const CandidateEntry& operator[](size_t idx) const noexcept;
     CandidateEntry& operator[](size_t idx) noexcept;

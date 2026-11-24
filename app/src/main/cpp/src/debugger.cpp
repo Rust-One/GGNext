@@ -18,6 +18,28 @@
 #include <sys/mman.h>
 #include <sys/ptrace.h>
 #include <sys/syscall.h>
+
+#ifndef PTRACE_SEIZE
+#define PTRACE_SEIZE 0x4206
+#endif
+#ifndef PTRACE_INTERRUPT
+#define PTRACE_INTERRUPT 0x4207
+#endif
+#ifndef PTRACE_EVENT_STOP
+#define PTRACE_EVENT_STOP 128
+#endif
+#ifndef TRAP_HWBKPT
+#define TRAP_HWBKPT 4
+#endif
+#ifndef TRAP_TRACE
+#define TRAP_TRACE 2
+#endif
+#ifndef TRAP_BRKPT
+#define TRAP_BRKPT 1
+#endif
+#ifndef NT_ARM_VFP
+#define NT_ARM_VFP 0x400
+#endif
 #include <sys/uio.h>
 #include <sys/user.h>
 #include <sys/wait.h>
@@ -221,6 +243,172 @@ uint64_t toPerfBpLen(int32_t sizeBytes, BpType t) {
     }
 }
 
+
+// Unified floating-point / SIMD register reader for an already ptrace-stopped thread
+bool captureFpRegsFromStoppedTid(int tid, std::vector<FpRegEntry>& outFprs) {
+    outFprs.clear();
+#if defined(__aarch64__)
+    struct user_fpsimd_state fpRegs{};
+    struct iovec fpIov{&fpRegs, sizeof(fpRegs)};
+    if (::ptrace(PTRACE_GETREGSET, tid, reinterpret_cast<void*>(static_cast<uintptr_t>(NT_PRFPREG)), &fpIov) != 0) {
+        return false;
+    }
+    outFprs.reserve(32);
+    for (int i = 0; i < 32; ++i) {
+        uint64_t lo = static_cast<uint64_t>(fpRegs.vregs[i]);
+        uint64_t hi = static_cast<uint64_t>(fpRegs.vregs[i] >> 64);
+        char hex[40];
+        if (hi != 0) {
+            std::snprintf(hex, sizeof(hex), "%016llX%016llX",
+                          static_cast<unsigned long long>(hi),
+                          static_cast<unsigned long long>(lo));
+        } else {
+            std::snprintf(hex, sizeof(hex), "%llX", static_cast<unsigned long long>(lo));
+        }
+        outFprs.push_back({"v" + std::to_string(i), hex});
+    }
+    return true;
+#elif defined(__arm__)
+    struct {
+        uint64_t fpregs[32];
+        uint32_t fpscr;
+    } vfpRegs{};
+    struct iovec fpIov{&vfpRegs, sizeof(vfpRegs)};
+    bool ok = (::ptrace(PTRACE_GETREGSET, tid, reinterpret_cast<void*>(static_cast<uintptr_t>(NT_ARM_VFP)), &fpIov) == 0);
+#ifdef PTRACE_GETVFPREGS
+    if (!ok) {
+        ok = (::ptrace(PTRACE_GETVFPREGS, tid, nullptr, &vfpRegs) == 0);
+    }
+#endif
+    if (!ok) return false;
+    outFprs.reserve(32);
+    for (int i = 0; i < 32; ++i) {
+        char hex[24];
+        std::snprintf(hex, sizeof(hex), "%llX", static_cast<unsigned long long>(vfpRegs.fpregs[i]));
+        outFprs.push_back({"d" + std::to_string(i), hex});
+    }
+    return true;
+#elif defined(__x86_64__)
+    struct user_fpregs_struct fpRegs{};
+    struct iovec fpIov{&fpRegs, sizeof(fpRegs)};
+    if (::ptrace(PTRACE_GETREGSET, tid, reinterpret_cast<void*>(static_cast<uintptr_t>(NT_PRFPREG)), &fpIov) != 0) {
+        return false;
+    }
+    outFprs.reserve(16);
+    for (int i = 0; i < 16; ++i) {
+        uint64_t lo = 0, hi = 0;
+        std::memcpy(&lo, &fpRegs.xmm_space[i * 4], 8);
+        std::memcpy(&hi, &fpRegs.xmm_space[i * 4 + 2], 8);
+        char hex[40];
+        if (hi != 0) {
+            std::snprintf(hex, sizeof(hex), "%016llX%016llX",
+                          static_cast<unsigned long long>(hi),
+                          static_cast<unsigned long long>(lo));
+        } else {
+            std::snprintf(hex, sizeof(hex), "%llX", static_cast<unsigned long long>(lo));
+        }
+        outFprs.push_back({"xmm" + std::to_string(i), hex});
+    }
+    return true;
+#elif defined(__i386__)
+    struct user_fpxregs_struct fpRegs{};
+    struct iovec fpIov{&fpRegs, sizeof(fpRegs)};
+    if (::ptrace(PTRACE_GETREGSET, tid, reinterpret_cast<void*>(static_cast<uintptr_t>(NT_PRXFPREG)), &fpIov) != 0) {
+        return false;
+    }
+    outFprs.reserve(8);
+    for (int i = 0; i < 8; ++i) {
+        uint64_t lo = 0, hi = 0;
+        std::memcpy(&lo, &fpRegs.xmm_space[i * 4], 8);
+        std::memcpy(&hi, &fpRegs.xmm_space[i * 4 + 2], 8);
+        char hex[40];
+        if (hi != 0) {
+            std::snprintf(hex, sizeof(hex), "%016llX%016llX",
+                          static_cast<unsigned long long>(hi),
+                          static_cast<unsigned long long>(lo));
+        } else {
+            std::snprintf(hex, sizeof(hex), "%llX", static_cast<unsigned long long>(lo));
+        }
+        outFprs.push_back({"xmm" + std::to_string(i), hex});
+    }
+    return true;
+#else
+    (void)tid;
+    return false;
+#endif
+}
+
+inline int sendThreadSignal(int pid, int tid, int sig) {
+    return static_cast<int>(::syscall(__NR_tgkill, pid, tid, sig));
+}
+
+// Wait with bounded timeout for a specific tid to stop, preserving any real app signal
+bool waitForTidStopBounded(int tid, bool seized, int timeoutMs, bool& outExited, int& outPendingSig) {
+    outExited = false;
+    outPendingSig = 0;
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+    while (std::chrono::steady_clock::now() < deadline) {
+        int st = 0;
+        pid_t r = ::waitpid(tid, &st, __WALL | WNOHANG);
+        if (r == tid) {
+            if (WIFEXITED(st) || WIFSIGNALED(st)) {
+                outExited = true;
+                return false;
+            }
+            if (WIFSTOPPED(st)) {
+                int sig = WSTOPSIG(st);
+                unsigned ev = (static_cast<unsigned>(st) >> 16) & 0xFFFFu;
+                if (ev == PTRACE_EVENT_STOP || (!seized && sig == SIGSTOP)) {
+                    outPendingSig = 0;
+                } else if (sig != SIGTRAP) {
+                    outPendingSig = sig;
+                }
+                return true;
+            }
+        } else if (r < 0) {
+            if (errno == EINTR) continue;
+            if (errno == ECHILD) outExited = true;
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return false;
+}
+
+// Brief, non-blocking, signal-safe FP register snapshot for Perf mode (PTRACE_SEIZE + INTERRUPT -> GETREGSET -> DETACH)
+bool sampleFpRegsBrief(int pid, int tid, std::vector<FpRegEntry>& outFprs) {
+    if (tid <= 0 || tid == ::getpid() || tid == ::gettid()) return false;
+    bool seized = false;
+    if (::ptrace(PTRACE_SEIZE, tid, nullptr, nullptr) == 0) {
+        seized = true;
+        if (::ptrace(PTRACE_INTERRUPT, tid, nullptr, nullptr) != 0) {
+            ::ptrace(PTRACE_DETACH, tid, nullptr, nullptr);
+            return false;
+        }
+    } else if (::ptrace(PTRACE_ATTACH, tid, nullptr, nullptr) != 0) {
+        return false;
+    }
+
+    bool exited = false;
+    int pendingSig = 0;
+    bool stopped = waitForTidStopBounded(tid, seized, 30, exited, pendingSig);
+    bool ok = false;
+    if (stopped) {
+        ok = captureFpRegsFromStoppedTid(tid, outFprs);
+    }
+    if (!exited) {
+        if (!stopped && seized) {
+            ::ptrace(PTRACE_INTERRUPT, tid, nullptr, nullptr);
+            waitForTidStopBounded(tid, seized, 15, exited, pendingSig);
+        }
+        if (!exited) {
+            ::ptrace(PTRACE_DETACH, tid, nullptr, reinterpret_cast<void*>(static_cast<uintptr_t>(pendingSig)));
+        }
+    }
+    (void)pid;
+    return ok;
+}
+
 #if defined(__aarch64__)
 struct Arm64HwDebugState {
     uint32_t dbg_info;
@@ -381,7 +569,7 @@ bool captureArm32Regs(
     outGprs.push_back({"lr", static_cast<uint64_t>(static_cast<uint32_t>(regs.uregs[14]))});
     outGprs.push_back({"pc", static_cast<uint64_t>(static_cast<uint32_t>(regs.uregs[15]))});
     outGprs.push_back({"cpsr", static_cast<uint64_t>(static_cast<uint32_t>(regs.uregs[16]))});
-    outFprs.clear();
+    captureFpRegsFromStoppedTid(tid, outFprs);
     return true;
 }
 #endif
@@ -453,7 +641,7 @@ bool captureX86Regs(
         {"eip", static_cast<uint32_t>(regs.eip)}, {"eflags", static_cast<uint32_t>(regs.eflags)}
     };
 #endif
-    outFprs.clear();
+    captureFpRegsFromStoppedTid(tid, outFprs);
     return true;
 }
 #endif
@@ -1080,17 +1268,32 @@ bool BreakpointManager::modifyRegister(
             errMsg = "等待调试线程写回寄存器超时";
         }
     } else {
-        // Perf mode or stopped session: perform brief ptrace attach -> write reg -> detach
-        if (::ptrace(PTRACE_ATTACH, targetTid, nullptr, nullptr) != 0) {
+        // Perf mode or stopped session: perform brief signal-safe ptrace seize/attach -> write reg -> detach
+        bool seized = false;
+        bool attached = false;
+        if (::ptrace(PTRACE_SEIZE, targetTid, nullptr, nullptr) == 0) {
+            seized = true;
+            attached = (::ptrace(PTRACE_INTERRUPT, targetTid, nullptr, nullptr) == 0);
+            if (!attached) {
+                ::ptrace(PTRACE_DETACH, targetTid, nullptr, nullptr);
+            }
+        }
+        if (!attached && ::ptrace(PTRACE_ATTACH, targetTid, nullptr, nullptr) == 0) {
+            attached = true;
+        }
+        if (!attached) {
             errMsg = "ptrace 附加目标线程失败 (errno=" + std::to_string(errno) + ")";
         } else {
-            int st = 0;
-            if (::waitpid(targetTid, &st, __WALL) == targetTid && WIFSTOPPED(st)) {
+            bool exited = false;
+            int pendingSig = 0;
+            if (waitForTidStopBounded(targetTid, seized, 150, exited, pendingSig)) {
                 ok = writeRegToStoppedTid(targetTid, regName, hexValue, isFp, numericVal, normHex, errMsg);
             } else {
                 errMsg = "等待目标线程暂停失败";
             }
-            ::ptrace(PTRACE_DETACH, targetTid, nullptr, nullptr);
+            if (!exited) {
+                ::ptrace(PTRACE_DETACH, targetTid, nullptr, reinterpret_cast<void*>(static_cast<uintptr_t>(pendingSig)));
+            }
         }
     }
 
@@ -1350,6 +1553,7 @@ void BreakpointManager::perfWorkerLoop(std::shared_ptr<Session> sess) {
     }
 
     std::vector<uint8_t> recordBuf(4096);
+    std::unordered_map<uint64_t, std::chrono::steady_clock::time_point> lastFpSampleByPc;
     auto lastRescan = std::chrono::steady_clock::now();
 
     while (!sess->stopFlag.load()) {
@@ -1487,6 +1691,19 @@ void BreakpointManager::perfWorkerLoop(std::shared_ptr<Session> sess) {
                         callstack = unwindFpChain(io, maps, ip, lr, fp);
                     }
 
+                    // Linux PERF_SAMPLE_REGS_USER omits ARM/x86 FP/SIMD registers; capture FP snapshot
+                    // on first hit per PC and refresh at most every 250ms via signal-safe PTRACE_SEIZE.
+                    {
+                        auto sampleNow = std::chrono::steady_clock::now();
+                        auto itFp = lastFpSampleByPc.find(ip);
+                        bool shouldSampleFp = (itFp == lastFpSampleByPc.end()) ||
+                            (std::chrono::duration_cast<std::chrono::milliseconds>(sampleNow - itFp->second).count() >= 250);
+                        if (shouldSampleFp && sampleTid > 0) {
+                            lastFpSampleByPc[ip] = sampleNow;
+                            sampleFpRegsBrief(sess->pid, sampleTid, fprs);
+                        }
+                    }
+
                     sess->recordHit(
                         ip,
                         sampleTid,
@@ -1526,9 +1743,18 @@ void BreakpointManager::ptraceWorkerLoop(std::shared_ptr<Session> sess) {
     io.attach(sess->pid);
     auto maps = MapsParser::parseProcessMaps(sess->pid, 0, false);
 
-    std::vector<int> attachedTids;
-    std::unordered_map<int, bool> steppingTid;
-    bool wasPaused = false;
+    struct TracedThread {
+        int tid = 0;
+        bool seized = false;        // Attached with PTRACE_SEIZE (no stray SIGSTOP on detach)
+        bool stopped = false;       // Currently in ptrace-stop awaiting CONT/SINGLESTEP/DETACH
+        bool stepping = false;      // Executing PTRACE_SINGLESTEP past a trapped instruction
+        bool hwArmed = false;       // Hardware bp/wp currently armed on this thread
+        int pendingSig = 0;         // Real app signal preserved for transparent forwarding
+        bool dead = false;
+    };
+
+    std::unordered_map<int, TracedThread> threads;
+    bool wasPaused = sess->pausedFlag.load();
 
     auto installHw = [&](int tid, bool enable) -> bool {
 #if defined(__aarch64__)
@@ -1543,63 +1769,335 @@ void BreakpointManager::ptraceWorkerLoop(std::shared_ptr<Session> sess) {
 #endif
     };
 
-    auto attachThreads = [&]() {
-        auto tids = listProcessThreads(sess->pid);
-        for (int tid : tids) {
-            if (std::find(attachedTids.begin(), attachedTids.end(), tid) != attachedTids.end()) {
-                continue;
+    auto resumeThread = [&](TracedThread& t, bool singleStep) {
+        if (t.dead || !t.stopped) return;
+        int fwdSig = t.pendingSig;
+        t.pendingSig = 0;
+        void* sigArg = reinterpret_cast<void*>(static_cast<uintptr_t>(fwdSig));
+        if (singleStep) {
+            if (::ptrace(PTRACE_SINGLESTEP, t.tid, nullptr, sigArg) == 0) {
+                t.stopped = false;
+                t.stepping = true;
+                return;
             }
-            if (tid == ::getpid() || tid == ::gettid()) continue;
-            if (::ptrace(PTRACE_ATTACH, tid, nullptr, nullptr) == 0) {
-                int status = 0;
-                if (::waitpid(tid, &status, __WALL) == tid) {
-                    if (!sess->pausedFlag.load()) {
-                        installHw(tid, true);
-                    }
-                    ::ptrace(PTRACE_CONT, tid, nullptr, nullptr);
-                    attachedTids.push_back(tid);
-                } else {
-                    ::ptrace(PTRACE_DETACH, tid, nullptr, nullptr);
+            t.stepping = false;
+        }
+        if (::ptrace(PTRACE_CONT, t.tid, nullptr, sigArg) < 0 && errno == ESRCH) {
+            t.dead = true;
+        }
+        t.stopped = false;
+    };
+
+    auto stopThreadForControl = [&](TracedThread& t, int timeoutMs) -> bool {
+        if (t.dead) return false;
+        if (t.stopped) return true;
+
+        // First drain any already-pending stop for this exact tid before requesting a new stop
+        {
+            int st = 0;
+            pid_t r = ::waitpid(t.tid, &st, __WALL | WNOHANG);
+            if (r == t.tid) {
+                if (WIFEXITED(st) || WIFSIGNALED(st)) {
+                    t.dead = true;
+                    return false;
                 }
+                if (WIFSTOPPED(st)) {
+                    t.stopped = true;
+                    int sig = WSTOPSIG(st);
+                    unsigned ev = (static_cast<unsigned>(st) >> 16) & 0xFFFFu;
+                    if (sig == SIGTRAP) {
+                        t.stepping = false;
+                    } else if (ev != PTRACE_EVENT_STOP && !(!t.seized && sig == SIGSTOP)) {
+                        t.pendingSig = sig;
+                    }
+                    return true;
+                }
+            } else if (r < 0 && errno == ECHILD) {
+                t.dead = true;
+                return false;
             }
+        }
+
+        // Request a thread-directed stop: PTRACE_INTERRUPT (preferred) or tgkill(pid, tid, SIGSTOP)
+        if (t.seized) {
+            if (::ptrace(PTRACE_INTERRUPT, t.tid, nullptr, nullptr) < 0) {
+                if (errno == ESRCH) { t.dead = true; return false; }
+            }
+        } else {
+            if (sendThreadSignal(sess->pid, t.tid, SIGSTOP) < 0) {
+                if (errno == ESRCH) { t.dead = true; return false; }
+            }
+        }
+
+        bool exited = false;
+        int sigOut = 0;
+        if (waitForTidStopBounded(t.tid, t.seized, timeoutMs, exited, sigOut)) {
+            t.stopped = true;
+            if (sigOut != 0 && t.pendingSig == 0) {
+                t.pendingSig = sigOut;
+            }
+            return true;
+        }
+        if (exited) t.dead = true;
+        return false;
+    };
+
+    auto updateSessionThreadStats = [&](const std::vector<int>& allTids) {
+        int aliveCount = 0;
+        for (const auto& kv : threads) {
+            if (!kv.second.dead) aliveCount++;
         }
         std::lock_guard<std::mutex> dlk(sess->dataMtx);
-        sess->totalThreads = static_cast<int32_t>(tids.size());
-        sess->attachedThreads = static_cast<int32_t>(attachedTids.size());
+        sess->totalThreads = static_cast<int32_t>(allTids.size());
+        sess->attachedThreads = aliveCount;
         sess->sampleTids.clear();
-        for (size_t i = 0; i < std::min<size_t>(tids.size(), 4); ++i) {
-            sess->sampleTids.push_back(tids[i]);
+        for (size_t i = 0; i < std::min<size_t>(allTids.size(), 4); ++i) {
+            sess->sampleTids.push_back(allTids[i]);
         }
-        if (attachedTids.empty()) {
+        if (aliveCount == 0 && !allTids.empty()) {
             sess->lastError = "ptrace 附加失败 (errno=" + std::to_string(errno) + "，目标进程可能已被其他调试器占用或无同 UID/Root 权限)";
-        } else {
+        } else if (aliveCount > 0) {
             sess->lastError.clear();
         }
     };
 
-    attachThreads();
-    if (attachedTids.empty()) {
+    auto attachNewThreads = [&]() {
+        auto tids = listProcessThreads(sess->pid);
+        bool currentlyPaused = sess->pausedFlag.load();
+        for (int tid : tids) {
+            if (threads.find(tid) != threads.end()) continue;
+            if (tid == ::getpid() || tid == ::gettid()) continue;
+
+            TracedThread t;
+            t.tid = tid;
+            bool attached = false;
+            // Prefer PTRACE_SEIZE + PTRACE_INTERRUPT so we never inject user-visible SIGSTOP
+            if (::ptrace(PTRACE_SEIZE, tid, nullptr, nullptr) == 0) {
+                t.seized = true;
+                attached = (::ptrace(PTRACE_INTERRUPT, tid, nullptr, nullptr) == 0);
+                if (!attached) {
+                    ::ptrace(PTRACE_DETACH, tid, nullptr, nullptr);
+                }
+            }
+            if (!attached && ::ptrace(PTRACE_ATTACH, tid, nullptr, nullptr) == 0) {
+                t.seized = false;
+                attached = true;
+            }
+            if (!attached) continue;
+
+            bool exited = false;
+            int pendingSig = 0;
+            if (waitForTidStopBounded(tid, t.seized, 120, exited, pendingSig)) {
+                t.stopped = true;
+                t.pendingSig = pendingSig;
+                if (!currentlyPaused) {
+                    t.hwArmed = installHw(tid, true);
+                } else {
+                    installHw(tid, false);
+                    t.hwArmed = false;
+                }
+                resumeThread(t, false);
+                if (!t.dead) {
+                    threads.emplace(tid, t);
+                }
+            } else if (!exited) {
+                ::ptrace(PTRACE_DETACH, tid, nullptr, nullptr);
+            }
+        }
+        for (auto it = threads.begin(); it != threads.end(); ) {
+            if (it->second.dead) it = threads.erase(it);
+            else ++it;
+        }
+        updateSessionThreadStats(tids);
+    };
+
+    auto handleStoppedEvent = [&](int tid, int status, bool nowPaused) {
+        auto it = threads.find(tid);
+        if (it == threads.end()) {
+            if (WIFSTOPPED(status)) {
+                int s = WSTOPSIG(status);
+                int fwd = (s == SIGSTOP || s == SIGTRAP) ? 0 : s;
+                ::ptrace(PTRACE_CONT, tid, nullptr, reinterpret_cast<void*>(static_cast<uintptr_t>(fwd)));
+            }
+            return;
+        }
+        TracedThread& t = it->second;
+
+        if (WIFEXITED(status) || WIFSIGNALED(status)) {
+            t.dead = true;
+            threads.erase(it);
+            return;
+        }
+        if (!WIFSTOPPED(status)) return;
+
+        t.stopped = true;
+        int sig = WSTOPSIG(status);
+        unsigned ev = (static_cast<unsigned>(status) >> 16) & 0xFFFFu;
+
+        // 1. Control stop from PTRACE_INTERRUPT or PTRACE_ATTACH
+        if (ev == PTRACE_EVENT_STOP || (!t.seized && sig == SIGSTOP)) {
+            if (nowPaused && t.hwArmed) {
+                installHw(t.tid, false);
+                t.hwArmed = false;
+                t.stepping = false;
+            }
+            resumeThread(t, false);
+            return;
+        }
+
+        // 2. SIGTRAP: completing single-step, hardware bp/wp hit, or app-raised SIGTRAP
+        if (sig == SIGTRAP) {
+            if (t.stepping) {
+                t.stepping = false;
+                if (!nowPaused) {
+                    t.hwArmed = installHw(t.tid, true);
+                } else if (t.hwArmed) {
+                    installHw(t.tid, false);
+                    t.hwArmed = false;
+                }
+                resumeThread(t, false);
+                return;
+            }
+
+            // v0.9.0: 严格区分三类 SIGTRAP —— 应用自触发、单步完成、硬件断点命中。
+            // 只有确认是硬件断点陷阱才记录命中并进入 step-over；其余一律透明转发，
+            // 避免把应用/运行时的 SIGTRAP 误判成断点（误判会污染命中数据甚至打断目标）。
+            siginfo_t si{};
+            bool isAppSigtrap = false;
+            bool isHwTrap = false;
+            bool gotSiginfo = (::ptrace(PTRACE_GETSIGINFO, t.tid, nullptr, &si) == 0);
+            if (gotSiginfo) {
+                if (si.si_code == SI_USER || si.si_code == SI_TKILL || si.si_code == SI_QUEUE) {
+                    isAppSigtrap = true;
+                } else if (si.si_code > 0 && si.si_code != TRAP_TRACE && si.si_code != TRAP_BRKPT) {
+                    // 内核生成的 SIGTRAP：排除单步(TRAP_TRACE)与软件断点(TRAP_BRKPT)。
+                    // 用 si_code==TRAP_HWBKPT 判定硬件断点/观察点命中。
+                    // 注意：不使用 si_trapno —— 该字段仅 bionic 提供，glibc 的 siginfo_t 无此成员，
+                    //       依赖它会破坏桌面端工具链的语法检查与可移植性。
+                    if (si.si_code == TRAP_HWBKPT) {
+                        isHwTrap = true;
+                    }
+                }
+            }
+            if (isAppSigtrap) {
+                t.pendingSig = SIGTRAP;
+                resumeThread(t, false);
+                return;
+            }
+            // GETSIGINFO 失败或无法确认来源：保守起见按硬件断点处理（维持既有行为），
+            // 但若能确认是单步 trap（TRAP_TRACE）则直接恢复，避免误记命中。
+            if (gotSiginfo && si.si_code == TRAP_TRACE && !isHwTrap) {
+                resumeThread(t, false);
+                return;
+            }
+            (void)isHwTrap;
+
+            // Hardware breakpoint / watchpoint hit
+            if (!nowPaused) {
+                uint64_t pc = 0, sp = 0, lr = 0, fp = 0;
+                std::vector<RegEntry> gprs;
+                std::vector<FpRegEntry> fprs;
+                bool okRegs = false;
+#if defined(__aarch64__)
+                okRegs = captureArm64Regs(t.tid, pc, sp, lr, fp, gprs, fprs);
+#elif defined(__arm__)
+                okRegs = captureArm32Regs(t.tid, pc, sp, lr, fp, gprs, fprs);
+#elif defined(__x86_64__) || defined(__i386__)
+                okRegs = captureX86Regs(t.tid, pc, sp, lr, fp, gprs, fprs);
+#endif
+                if (okRegs) {
+                    std::vector<CallFrameEntry> callstack;
+                    if (sess->captureCallstack) {
+                        callstack = unwindFpChain(io, maps, pc, lr, fp);
+                    }
+                    sess->recordHit(
+                        pc,
+                        static_cast<int32_t>(t.tid),
+                        static_cast<int32_t>(sess->type),
+                        maps,
+                        io,
+                        sp,
+                        lr,
+                        std::move(gprs),
+                        std::move(fprs),
+                        std::move(callstack)
+                    );
+                }
+            }
+
+            // Disarm before stepping past the trapped instruction
+            installHw(t.tid, false);
+            t.hwArmed = false;
+            if (nowPaused) {
+                t.stepping = false;
+                resumeThread(t, false);
+            } else {
+#if defined(__aarch64__) || defined(__x86_64__) || defined(__i386__)
+                resumeThread(t, true); // PTRACE_SINGLESTEP -> re-arm on next SIGTRAP
+#else
+                resumeThread(t, false);
+#endif
+            }
+            return;
+        }
+
+        // 3. Any other application signal (e.g. ART GC SIGSEGV/SIGUSR1/SIGRTMIN):
+        //    ALWAYS forward transparently; if mid single-step, keep single-stepping!
+        t.pendingSig = sig;
+        resumeThread(t, t.stepping);
+    };
+
+    attachNewThreads();
+    if (threads.empty()) {
         sess->runningFlag.store(false);
         return;
     }
 
-    auto lastMapsRefresh = std::chrono::steady_clock::now();
+    auto lastRescan = std::chrono::steady_clock::now();
+    int rescanTick = 0; // v0.9.0: 用局部变量记录扫描次数，避免多会话间共享静态计数
 
-    while (!sess->stopFlag.load() && !attachedTids.empty()) {
+    while (!sess->stopFlag.load() && !threads.empty()) {
         bool nowPaused = sess->pausedFlag.load();
+
+        // Handle Pause / Resume cleanly without process-wide SIGSTOP or signal loss
         if (nowPaused != wasPaused) {
             wasPaused = nowPaused;
-            for (int tid : attachedTids) {
-                ::kill(tid, SIGSTOP);
+
+            // Drain any already-queued wait events first so stale traps don't collide
+            while (true) {
                 int st = 0;
-                if (::waitpid(tid, &st, __WALL) == tid) {
-                    installHw(tid, !nowPaused);
-                    ::ptrace(PTRACE_CONT, tid, nullptr, nullptr);
+                pid_t r = ::waitpid(-1, &st, __WALL | WNOHANG);
+                if (r <= 0) break;
+                handleStoppedEvent(static_cast<int>(r), st, nowPaused);
+            }
+
+            std::vector<int> tidsSnapshot;
+            tidsSnapshot.reserve(threads.size());
+            for (const auto& kv : threads) tidsSnapshot.push_back(kv.first);
+
+            for (int tid : tidsSnapshot) {
+                auto it = threads.find(tid);
+                if (it == threads.end() || it->second.dead) continue;
+                TracedThread& t = it->second;
+                if (stopThreadForControl(t, 120)) {
+                    t.stepping = false;
+                    if (nowPaused) {
+                        installHw(t.tid, false);
+                        t.hwArmed = false;
+                    } else {
+                        t.hwArmed = installHw(t.tid, true);
+                    }
+                    resumeThread(t, false);
                 }
+            }
+
+            for (auto it = threads.begin(); it != threads.end(); ) {
+                if (it->second.dead) it = threads.erase(it);
+                else ++it;
             }
         }
 
-        // Process any pending register modification requests from UI while holding ptrace ownership
+        // Process any pending register modification requests while holding ptrace ownership
         {
             std::vector<std::shared_ptr<Session::PendingRegWrite>> todo;
             {
@@ -1610,19 +2108,18 @@ void BreakpointManager::ptraceWorkerLoop(std::shared_ptr<Session> sess) {
             }
             for (auto& req : todo) {
                 int targetTid = req->tid;
-                if (std::find(attachedTids.begin(), attachedTids.end(), targetTid) == attachedTids.end() &&
-                    !attachedTids.empty()) {
-                    targetTid = attachedTids.front();
+                auto it = threads.find(targetTid);
+                if (it == threads.end() && !threads.empty()) {
+                    it = threads.begin();
+                    targetTid = it->first;
                 }
-                ::kill(targetTid, SIGSTOP);
-                int st = 0;
                 bool wrote = false;
                 uint64_t numVal = 0;
                 std::string normHex;
                 std::string err;
-                if (::waitpid(targetTid, &st, __WALL) == targetTid && WIFSTOPPED(st)) {
+                if (it != threads.end() && stopThreadForControl(it->second, 150)) {
                     wrote = writeRegToStoppedTid(targetTid, req->regName, req->hexValue, req->isFp, numVal, normHex, err);
-                    ::ptrace(PTRACE_CONT, targetTid, nullptr, nullptr);
+                    resumeThread(it->second, it->second.stepping);
                 } else {
                     err = "暂停目标线程以修改寄存器失败";
                 }
@@ -1635,98 +2132,42 @@ void BreakpointManager::ptraceWorkerLoop(std::shared_ptr<Session> sess) {
             }
         }
 
+        // v0.9.0: 将新线程接管扫描从 1500ms 缩短到 350ms，显著收窄新线程创建后
+        // 尚未安装硬件断点的窗口；maps 重解析保持较低频（每 14 次扫描约 5 秒）以控制开销。
         auto now = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastMapsRefresh).count() >= 1500) {
-            lastMapsRefresh = now;
-            maps = MapsParser::parseProcessMaps(sess->pid, 0, false);
-        }
-
-        int status = 0;
-        pid_t tid = ::waitpid(-1, &status, __WALL | WNOHANG);
-        if (tid <= 0) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(4));
-            continue;
-        }
-
-        if (WIFEXITED(status) || WIFSIGNALED(status)) {
-            attachedTids.erase(std::remove(attachedTids.begin(), attachedTids.end(), tid), attachedTids.end());
-            steppingTid.erase(tid);
-            continue;
-        }
-
-        if (!WIFSTOPPED(status)) {
-            continue;
-        }
-
-        int sig = WSTOPSIG(status);
-        if (sig == SIGTRAP) {
-            if (steppingTid[tid]) {
-                // Finished single-step past trapped instruction: re-arm watchpoint and resume
-                steppingTid[tid] = false;
-                if (!nowPaused) {
-                    installHw(tid, true);
-                }
-                ::ptrace(PTRACE_CONT, tid, nullptr, nullptr);
-            } else {
-                // Hardware breakpoint / watchpoint hit!
-                uint64_t pc = 0, sp = 0, lr = 0, fp = 0;
-                std::vector<RegEntry> gprs;
-                std::vector<FpRegEntry> fprs;
-                bool okRegs = false;
-#if defined(__aarch64__)
-                okRegs = captureArm64Regs(tid, pc, sp, lr, fp, gprs, fprs);
-#elif defined(__arm__)
-                okRegs = captureArm32Regs(tid, pc, sp, lr, fp, gprs, fprs);
-#elif defined(__x86_64__) || defined(__i386__)
-                okRegs = captureX86Regs(tid, pc, sp, lr, fp, gprs, fprs);
-#endif
-                if (okRegs && !nowPaused) {
-                    std::vector<CallFrameEntry> callstack;
-                    if (sess->captureCallstack) {
-                        callstack = unwindFpChain(io, maps, pc, lr, fp);
-                    }
-                    sess->recordHit(
-                        pc,
-                        static_cast<int32_t>(tid),
-                        static_cast<int32_t>(sess->type),
-                        maps,
-                        io,
-                        sp,
-                        lr,
-                        std::move(gprs),
-                        std::move(fprs),
-                        std::move(callstack)
-                    );
-                }
-                // Temporarily disarm, single-step past the faulting instruction, then re-arm
-                installHw(tid, false);
-#if defined(__aarch64__) || defined(__x86_64__) || defined(__i386__)
-                if (::ptrace(PTRACE_SINGLESTEP, tid, nullptr, nullptr) == 0) {
-                    steppingTid[tid] = true;
-                } else {
-                    if (!nowPaused) installHw(tid, true);
-                    ::ptrace(PTRACE_CONT, tid, nullptr, nullptr);
-                }
-#else
-                // ARM32 lacks universal PTRACE_SINGLESTEP; continue briefly and re-arm on next cycle
-                ::ptrace(PTRACE_CONT, tid, nullptr, nullptr);
-#endif
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastRescan).count() >= 350) {
+            lastRescan = now;
+            attachNewThreads();
+            if ((++rescanTick % 14) == 0) {
+                maps = MapsParser::parseProcessMaps(sess->pid, 0, false);
             }
-        } else if (sig == SIGSTOP) {
-            ::ptrace(PTRACE_CONT, tid, nullptr, nullptr);
-        } else {
-            // Forward non-debugger signals transparently so the target process behaves normally
-            ::ptrace(PTRACE_CONT, tid, nullptr, reinterpret_cast<void*>(static_cast<uintptr_t>(sig)));
+        }
+
+        bool gotAny = false;
+        while (!sess->stopFlag.load()) {
+            int status = 0;
+            pid_t tid = ::waitpid(-1, &status, __WALL | WNOHANG);
+            if (tid <= 0) break;
+            gotAny = true;
+            handleStoppedEvent(static_cast<int>(tid), status, sess->pausedFlag.load());
+        }
+        if (!gotAny) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }
     }
 
-    // Cleanly disarm & detach all threads
-    for (int tid : attachedTids) {
-        ::kill(tid, SIGSTOP);
-        int st = 0;
-        ::waitpid(tid, &st, __WALL);
-        installHw(tid, false);
-        ::ptrace(PTRACE_DETACH, tid, nullptr, nullptr);
+    // Cleanly disarm & detach all threads without leaving any stray SIGSTOP
+    for (auto& kv : threads) {
+        TracedThread& t = kv.second;
+        if (t.dead) continue;
+        if (stopThreadForControl(t, 120)) {
+            installHw(t.tid, false);
+            t.hwArmed = false;
+            ::ptrace(PTRACE_DETACH, t.tid, nullptr, reinterpret_cast<void*>(static_cast<uintptr_t>(t.pendingSig)));
+            t.stopped = false;
+        } else if (!t.dead) {
+            ::ptrace(PTRACE_DETACH, t.tid, nullptr, nullptr);
+        }
     }
     sess->runningFlag.store(false);
 }

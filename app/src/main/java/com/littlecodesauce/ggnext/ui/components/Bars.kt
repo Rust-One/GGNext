@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -27,7 +26,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Close
@@ -36,6 +34,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -70,6 +69,8 @@ import com.littlecodesauce.ggnext.data.ProcessScanner
 import com.littlecodesauce.ggnext.model.TargetProcess
 import com.littlecodesauce.ggnext.ui.model.ToolId
 import com.littlecodesauce.ggnext.ui.model.toolIcon
+import com.littlecodesauce.ggnext.ui.theme.GgBorder
+import com.littlecodesauce.ggnext.ui.theme.GgShapes
 import com.littlecodesauce.ggnext.ui.theme.Motion
 import com.littlecodesauce.ggnext.ui.theme.Rose
 import com.littlecodesauce.ggnext.ui.theme.regionColor
@@ -89,7 +90,7 @@ fun NavBar(
     onMinimize: () -> Unit
 ) {
     val primary = MaterialTheme.colorScheme.primary
-    val tabCount = 5
+    val tabCount = 6
     val prevOrdinalRef = remember { intArrayOf(tab.ordinal) }
     val movingRightRef = remember { booleanArrayOf(true) }
     if (tab.ordinal != prevOrdinalRef[0]) {
@@ -139,7 +140,7 @@ fun NavBar(
                     .offset(x = renderedLeft)
                     .width(renderedWidth)
                     .height(2.8.dp)
-                    .background(primary, RoundedCornerShape(999.dp))
+                    .background(primary, GgShapes.Pill)
             )
 
             Row(
@@ -188,6 +189,14 @@ fun NavBar(
                     badgeCount = debugCount,
                     modifier = Modifier.weight(1f)
                 ) { onTab(NextTab.DEBUG) }
+
+                NavIcon(
+                    icon = Icons.Rounded.SmartToy,
+                    desc = "对话",
+                    selected = tab == NextTab.AI,
+                    primary = primary,
+                    modifier = Modifier.weight(1f)
+                ) { onTab(NextTab.AI) }
             }
         }
 
@@ -267,9 +276,9 @@ private fun NavIcon(
                     val badgeBorder = if (selected) Rose.Surface else Rose.Divider
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(badgeBg, RoundedCornerShape(999.dp))
-                            .border(0.9.dp, badgeBorder, RoundedCornerShape(999.dp))
+                            .clip(GgShapes.Pill)
+                            .background(badgeBg, GgShapes.Pill)
+                            .border(GgBorder.Thin, badgeBorder, GgShapes.Pill)
                             .padding(horizontal = 4.dp, vertical = 1.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -623,8 +632,8 @@ private fun ToolIconItem(
             .then(
                 if (isDragging) {
                     Modifier
-                        .background(Rose.ChipSelected, RoundedCornerShape(10.dp))
-                        .border(1.dp, Rose.Primary, RoundedCornerShape(10.dp))
+                        .background(Rose.ChipSelected, GgShapes.Md)
+                        .border(GgBorder.Default, Rose.Primary, GgShapes.Md)
                 } else Modifier
             )
             .clickableWithTooltip(
@@ -721,7 +730,7 @@ fun ProcessBar(
                 if (target.isVirtual) {
                     Text(
                         text = "*",
-                        color = if (Rose.IsDark) Color(0xFF42A5F5) else Color(0xFF1565C0),
+                        color = Rose.VirtualBadge,
                         fontSize = fsp(14f),
                         fontWeight = FontWeight.ExtraBold
                     )
@@ -771,7 +780,7 @@ fun ProcessBar(
         Box(
             Modifier
                 .scale(countScale)
-                .background(countBg, RoundedCornerShape(6.dp))
+                .background(countBg, GgShapes.Xs)
                 .clickableWithTooltip(
                     onPressChange = { countPressed = it },
                     onClick = onCountClick
@@ -846,9 +855,9 @@ fun InlineSearchProgressBar(ui: com.littlecodesauce.ggnext.core.Ui) {
                 Spacer(Modifier.width(8.dp))
                 Box(
                     Modifier
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(GgShapes.Xs)
                         .background(Rose.Red.copy(alpha = if (Rose.IsDark) 0.22f else 0.14f))
-                        .border(0.8.dp, Rose.Red.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
+                        .border(GgBorder.Thin, Rose.Red.copy(alpha = 0.55f), GgShapes.Xs)
                         .clickableWithTooltip(
                             tooltip = tr("取消搜索"),
                             onClick = { Session.cancelSearch() }

@@ -72,6 +72,3 @@ data class TargetProcess(
     /** 虚拟空间或未注册包名的真实 APK 路径（用于提取图标与标签） */
     val apkPath: String = ""
 )
-
-/** 已保存列表条目（可带名称与冻结状态） */
-typealias SavedItem = MemoryItem

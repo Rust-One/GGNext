@@ -5,7 +5,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -16,12 +15,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -38,6 +35,10 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.littlecodesauce.ggnext.ui.theme.GgBorder
+import com.littlecodesauce.ggnext.ui.theme.GgControlHeight
+import com.littlecodesauce.ggnext.ui.theme.GgIconSize
+import com.littlecodesauce.ggnext.ui.theme.GgShapes
 import com.littlecodesauce.ggnext.ui.theme.LocalUiMetrics
 import com.littlecodesauce.ggnext.ui.theme.Motion
 import com.littlecodesauce.ggnext.ui.theme.Rose
@@ -84,9 +85,11 @@ fun NextSheetCard(
         }
         val effectiveMaxBodyHeight = minOf(maxBodyHeight, (availHeightDp - headerReserve - 12).coerceAtLeast(110)).dp
         val useLandscapeSideKeyboard = isLandscape && showSideKeyboard && sideKeyboard != null
+        // 横屏弹窗按屏宽自适应（约 82%），不再固定 560dp 导致两侧大片留白
+        val landscapeCardWidth = (configuration.screenWidthDp * 0.82f).coerceIn(520f, 1180f).dp
         val maxCardWidth = when {
-            useLandscapeSideKeyboard -> 960.dp
-            isLandscape -> 560.dp
+            useLandscapeSideKeyboard -> (configuration.screenWidthDp * 0.94f).coerceIn(720f, 1400f).dp
+            isLandscape -> landscapeCardWidth
             else -> Dp.Unspecified
         }
 
@@ -228,37 +231,17 @@ fun NextSheetCard(
 
 @Composable
 fun CloseBadge(onClick: () -> Unit) {
-    var pressed by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (pressed) 0.88f else 1f, Motion.Fast, label = "closeScale")
-    Box(
-        Modifier
-            .size(36.dp)
-            .scale(scale)
-            .background(Rose.CardHigh, RoundedCornerShape(10.dp))
-            .clickableWithTooltip("关闭", onPressChange = { pressed = it }, onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(Icons.Rounded.Close, "关闭", tint = Rose.Text, modifier = Modifier.size(18.dp))
-    }
-}
-
-@Composable
-fun FilterChipRow(
-    items: List<String>,
-    selected: Int,
-    onSelect: (Int) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier
-            .fillMaxWidth()
-            .padding(horizontal = 4.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        items.forEachIndexed { i, label ->
-            Chip(label, selected == i, Modifier.weight(1f)) { onSelect(i) }
-        }
-    }
+    GgIconActionButton(
+        icon = Icons.Rounded.Close,
+        contentDescription = "关闭",
+        onClick = onClick,
+        tint = Rose.Text,
+        boxSize = 36.dp,
+        iconSize = GgIconSize.Md,
+        backgroundColor = Rose.CardHigh,
+        shape = GgShapes.Md,
+        tooltip = "关闭"
+    )
 }
 
 @Composable
@@ -278,9 +261,9 @@ fun Chip(
     )
     Box(
         modifier
-            .heightIn(min = 40.dp)
+            .heightIn(min = GgControlHeight.Button)
             .scale(scale)
-            .background(bg, RoundedCornerShape(10.dp))
+            .background(bg, GgShapes.Md)
             .clickableWithTooltip(label, onPressChange = { pressed = it }, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -316,11 +299,11 @@ fun RoseButton(
     )
     Box(
         modifier
-            .heightIn(min = 42.dp)
+            .heightIn(min = GgControlHeight.ButtonLg)
             .scale(scale)
-            .background(bg, RoundedCornerShape(10.dp))
+            .background(bg, GgShapes.Md)
             .then(
-                if (filled && enabled) Modifier.border(1.dp, Rose.Primary.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
+                if (filled && enabled) Modifier.border(GgBorder.Default, Rose.Primary.copy(alpha = 0.45f), GgShapes.Md)
                 else Modifier
             )
             .clickableWithTooltip(
@@ -352,7 +335,7 @@ fun Hairline(modifier: Modifier = Modifier, inset: Dp = 0.dp) {
         modifier
             .fillMaxWidth()
             .padding(horizontal = inset)
-            .height(0.6.dp)
+            .height(GgBorder.Hairline)
             .background(Rose.Divider)
     )
 }

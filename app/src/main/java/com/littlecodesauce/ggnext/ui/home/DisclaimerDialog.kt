@@ -5,13 +5,12 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -19,7 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Gavel
@@ -36,9 +34,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
+import com.littlecodesauce.ggnext.ui.components.GgModalOverlay
+import com.littlecodesauce.ggnext.ui.components.GgSurfaceCard
 import com.littlecodesauce.ggnext.ui.components.fsp
 import com.littlecodesauce.ggnext.ui.components.tr
+import com.littlecodesauce.ggnext.ui.theme.GgBorder
+import com.littlecodesauce.ggnext.ui.theme.GgControlHeight
+import com.littlecodesauce.ggnext.ui.theme.GgIconSize
+import com.littlecodesauce.ggnext.ui.theme.GgShapes
+import com.littlecodesauce.ggnext.ui.theme.GgSpacing
 import com.littlecodesauce.ggnext.ui.theme.Motion
 import com.littlecodesauce.ggnext.ui.theme.Rose
 import kotlinx.coroutines.delay
@@ -72,30 +76,22 @@ fun DisclaimerDialog(
         label = "disclaimerAcceptFg"
     )
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .zIndex(200f)
-            .background(Rose.Scrim)
-            .clickable(
-                indication = null,
-                interactionSource = remember { MutableInteractionSource() }
-            ) {},
-        contentAlignment = Alignment.Center
+    GgModalOverlay(
+        visible = true,
+        onDismiss = {},
+        zIndex = 200f,
+        dismissOnScrimClick = false
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth(0.9f)
-                .clip(RoundedCornerShape(18.dp))
-                .background(Rose.Card)
-                .border(1.dp, Rose.Divider, RoundedCornerShape(18.dp))
-                .padding(horizontal = 20.dp, vertical = 20.dp)
+        GgSurfaceCard(
+            modifier = Modifier.fillMaxWidth(0.9f),
+            shape = GgShapes.Dialog,
+            contentPadding = PaddingValues(GgSpacing.Xxl)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
                         .size(36.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(GgShapes.Md)
                         .background(Rose.Primary.copy(alpha = 0.16f)),
                     contentAlignment = Alignment.Center
                 ) {
@@ -103,10 +99,10 @@ fun DisclaimerDialog(
                         imageVector = Icons.Rounded.Gavel,
                         contentDescription = null,
                         tint = Rose.Primary,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(GgIconSize.Lg)
                     )
                 }
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(GgSpacing.Lg))
                 Column {
                     Text(
                         text = tr("使用声明与免责协议"),
@@ -128,12 +124,12 @@ fun DisclaimerDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 180.dp, max = 340.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(GgShapes.Lg)
                     .background(Rose.Surface.copy(alpha = 0.65f))
-                    .border(1.dp, Rose.Divider, RoundedCornerShape(12.dp))
+                    .border(GgBorder.Default, Rose.Divider, GgShapes.Lg)
                     .verticalScroll(rememberScrollState())
                     .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(GgSpacing.MdPlus)
             ) {
                 DisclaimerClause(
                     title = "一、工具性质与适用范围",
@@ -157,19 +153,19 @@ fun DisclaimerDialog(
                 )
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(GgSpacing.Xl))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(GgSpacing.MdPlus)
             ) {
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .height(44.dp)
-                        .clip(RoundedCornerShape(11.dp))
+                        .height(GgControlHeight.Input)
+                        .clip(GgShapes.Md)
                         .background(Rose.CardHigh)
-                        .border(1.dp, Rose.Divider, RoundedCornerShape(11.dp))
+                        .border(GgBorder.Default, Rose.Divider, GgShapes.Md)
                         .clickable(onClick = onDecline),
                     contentAlignment = Alignment.Center
                 ) {
@@ -184,8 +180,8 @@ fun DisclaimerDialog(
                 Box(
                     modifier = Modifier
                         .weight(1.25f)
-                        .height(44.dp)
-                        .clip(RoundedCornerShape(11.dp))
+                        .height(GgControlHeight.Input)
+                        .clip(GgShapes.Md)
                         .background(acceptBg)
                         .then(
                             if (canAccept) Modifier.clickable(onClick = onAccept)
