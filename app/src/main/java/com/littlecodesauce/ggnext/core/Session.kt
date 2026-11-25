@@ -1017,6 +1017,9 @@ object Session {
         persistGotoHistoryAsync(updatedList)
     }
 
+    /** 供 UI 查询任意地址所属内存区域码（寄存器着色等）。 */
+    fun regionCodeAt(address: Long): String = engine.regionCodeAt(address)
+
     fun toast(msg: String) {
         _toastState.value = AppStrings.tr(msg)
     }

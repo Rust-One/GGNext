@@ -1379,7 +1379,7 @@ std::string BreakpointManager::snapshotsToJson() const {
         oss << "{"
             << "\"id\":" << s.id
             << ",\"pid\":" << s.pid
-            << ",\"address\":" << s.address
+            << ",\"address\":" << static_cast<int64_t>(s.address)
             << ",\"type\":" << s.type
             << ",\"size\":" << s.size
             << ",\"mode\":" << s.mode
@@ -1399,21 +1399,27 @@ std::string BreakpointManager::snapshotsToJson() const {
         for (size_t h = 0; h < s.hits.size(); ++h) {
             const auto& g = s.hits[h];
             if (h > 0) oss << ",";
+            // 所有 64 位地址/寄存器值必须以「有符号十进制位模式」输出：
+            // Kotlin 侧用 org.json.optLong 解析，它只接受 Long 范围（-2^63..2^63-1）。
+            // 若直接输出 uint64 十进制（如 0xB40000740B9A63F0 = 12970367452760182768），
+            // optLong 会饱和成 Long.MAX_VALUE(0x7FFFFFFFFFFFFFFF)，导致 x8 等寄存器显示错误。
+            // 转成 int64_t 后二进制位不变，Kotlin 用 Long.toUnsignedString(v,16) 可完整还原。
             oss << "{"
-                << "\"pc\":" << g.pc
+                << "\"pc\":" << static_cast<int64_t>(g.pc)
                 << ",\"hitType\":" << g.hitType
                 << ",\"tid\":" << g.tid
                 << ",\"arch\":\"" << jsonEscape(g.arch) << "\""
                 << ",\"module\":\"" << jsonEscape(g.moduleName) << "\""
-                << ",\"offset\":" << g.moduleOffset
+                << ",\"offset\":" << static_cast<int64_t>(g.moduleOffset)
                 << ",\"insnHex\":\"" << bytesToHexLower(g.insnBytes) << "\""
-                << ",\"count\":" << g.hitCount
-                << ",\"sp\":" << g.sp
-                << ",\"lr\":" << g.lr
+                << ",\"count\":" << static_cast<int64_t>(g.hitCount)
+                << ",\"sp\":" << static_cast<int64_t>(g.sp)
+                << ",\"lr\":" << static_cast<int64_t>(g.lr)
                 << ",\"gprs\":[";
             for (size_t r = 0; r < g.gprs.size(); ++r) {
                 if (r > 0) oss << ",";
-                oss << "{\"n\":\"" << jsonEscape(g.gprs[r].name) << "\",\"v\":" << g.gprs[r].value << "}";
+                oss << "{\"n\":\"" << jsonEscape(g.gprs[r].name)
+                    << "\",\"v\":" << static_cast<int64_t>(g.gprs[r].value) << "}";
             }
             oss << "],\"fprs\":[";
             for (size_t r = 0; r < g.fprs.size(); ++r) {
@@ -1423,9 +1429,9 @@ std::string BreakpointManager::snapshotsToJson() const {
             oss << "],\"callstack\":[";
             for (size_t c = 0; c < g.callstack.size(); ++c) {
                 if (c > 0) oss << ",";
-                oss << "{\"addr\":" << g.callstack[c].address
+                oss << "{\"addr\":" << static_cast<int64_t>(g.callstack[c].address)
                     << ",\"mod\":\"" << jsonEscape(g.callstack[c].moduleName) << "\""
-                    << ",\"off\":" << g.callstack[c].moduleOffset << "}";
+                    << ",\"off\":" << static_cast<int64_t>(g.callstack[c].moduleOffset) << "}";
             }
             oss << "]}";
         }

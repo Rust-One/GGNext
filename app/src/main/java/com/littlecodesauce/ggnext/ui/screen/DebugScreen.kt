@@ -77,6 +77,7 @@ import com.littlecodesauce.ggnext.ui.theme.GgIconSize
 import com.littlecodesauce.ggnext.ui.theme.GgShapes
 import com.littlecodesauce.ggnext.ui.theme.GgSpacing
 import com.littlecodesauce.ggnext.ui.theme.Rose
+import com.littlecodesauce.ggnext.ui.theme.regionColor
 
 private data class EditingRegTarget(
     val bpId: Int,
@@ -591,7 +592,10 @@ private fun RegisterGprGrid(
                 horizontalArrangement = Arrangement.spacedBy(GgSpacing.Md)
             ) {
                 pair.forEach { reg ->
-                    val valColor = registerValueColor(reg)
+                    val regionCode = remember(reg.name, reg.value) {
+                        Session.regionCodeAt(reg.value)
+                    }
+                    val valColor = registerValueColor(reg, regionCode)
                     Row(
                         modifier = Modifier
                             .weight(1f)
@@ -940,17 +944,20 @@ private fun bpTypeColor(type: BpType): Color = when (type) {
     BpType.EXEC -> Rose.Cyan
 }
 
-private fun registerValueColor(reg: BpRegEntry): Color {
+private fun registerValueColor(reg: BpRegEntry, regionCode: String): Color {
     val n = reg.name.lowercase()
     if (reg.value == 0L) return Rose.TextDim
+    // pc/lr/sp/fp 保持指针语义色，便于一眼区分控制流寄存器
     if (n == "pc" || n == "lr" || n == "rip" || n == "eip") return Rose.PointerX
     if (n == "sp" || n == "fp" || n == "rsp" || n == "rbp" || n == "esp" || n == "ebp") return Rose.PointerW
     val u = reg.value
-    return if (java.lang.Long.compareUnsigned(u, 0x10000000L) >= 0 &&
+    // 与搜索列表/内存列表一致：按寄存器值所在 VMA 区域着色（Xs=系统代码洋红、Jh/Ch=堆绿等）。
+    // 仅当数值落在合理用户态地址范围内才按区域着色，否则按指针属性兜底。
+    val inUserRange = java.lang.Long.compareUnsigned(u, 0x10000000L) >= 0 &&
         java.lang.Long.compareUnsigned(u, 0x0000FFFFFFFFFFFFL) <= 0
-    ) {
-        Rose.PointerW
-    } else {
-        Rose.Text
+    if (inUserRange && regionCode.isNotBlank()) {
+        val c = regionColor(regionCode)
+        if (c != com.littlecodesauce.ggnext.ui.theme.Rose.TextSecond) return c
     }
+    return if (inUserRange) Rose.PointerW else Rose.Text
 }
