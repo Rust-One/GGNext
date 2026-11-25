@@ -227,6 +227,36 @@ Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeSetRegionMask(
 }
 
 JNIEXPORT void JNICALL
+Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeSetStealth(
+    JNIEnv* /*env*/,
+    jclass /*clazz*/,
+    jlong handle,
+    jboolean rotation,
+    jboolean ephemeralFd
+) {
+    auto* session = reinterpret_cast<NativeEngineSession*>(handle);
+    if (!session) return;
+    std::lock_guard<std::mutex> lk(session->mtx);
+    session->io.setStealthRotation(rotation == JNI_TRUE);
+    session->io.setEphemeralFd(ephemeralFd == JNI_TRUE);
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeStealthStats(
+    JNIEnv* /*env*/,
+    jclass /*clazz*/,
+    jlong handle
+) {
+    auto* session = reinterpret_cast<NativeEngineSession*>(handle);
+    if (!session) return 0;
+    // 打包为三个 20-bit 计数（单次统计上限 ~100 万，足够展示）
+    uint64_t pvm = session->io.readCountPvm() & 0xFFFFF;
+    uint64_t memfd = session->io.readCountMemfd() & 0xFFFFF;
+    uint64_t fb = session->io.readCountFallback() & 0xFFFFF;
+    return static_cast<jlong>((pvm << 40) | (memfd << 20) | fb);
+}
+
+JNIEXPORT void JNICALL
 Java_com_littlecodesauce_ggnext_engine_NativeMemBridge_nativeSetAddressFilter(
     JNIEnv* /*env*/,
     jclass /*clazz*/,

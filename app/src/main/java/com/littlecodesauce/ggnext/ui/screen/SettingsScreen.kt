@@ -54,6 +54,8 @@ fun SettingsScreen(ui: Ui, embedded: Boolean = false) {
     val autopause = (ui.settings["autopause"] ?: "0") == "1"
     val rawFreeze = ui.settings["freeze_interval"]?.toLongOrNull() ?: 33L
     val freezeIntervalMs = (if (rawFreeze > 1000L) rawFreeze / 1000L else rawFreeze).coerceIn(5L, 500L)
+    val stealthRotation = (ui.settings["stealth_rotation"] ?: "1") == "1"
+    val stealthEphemeral = (ui.settings["stealth_ephemeral_fd"] ?: "0") == "1"
 
     val bgOpacityPct = (ui.metrics.bgOpacity * 100f).roundToInt().coerceIn(25, 100)
     val panelScalePct = (ui.metrics.panelScale * 100f).roundToInt().coerceIn(40, 100)
@@ -192,6 +194,28 @@ fun SettingsScreen(ui: Ui, embedded: Boolean = false) {
                     ) {
                         Session.setSetting("freeze_interval", it.roundToInt().coerceIn(5, 500).toString())
                     }
+
+                    GgDivider()
+
+                    GgSettingSwitchRow(
+                        title = "隐蔽读取(通道轮换)",
+                        checked = stealthRotation,
+                        onCheckedChange = { checked ->
+                            Session.setSetting("stealth_rotation", if (checked) "1" else "0")
+                            Session.toast(if (checked) "已开启通道轮换读取" else "已关闭通道轮换读取")
+                        }
+                    )
+
+                    GgDivider()
+
+                    GgSettingSwitchRow(
+                        title = "读后即关 fd",
+                        checked = stealthEphemeral,
+                        onCheckedChange = { checked ->
+                            Session.setSetting("stealth_ephemeral_fd", if (checked) "1" else "0")
+                            Session.toast(if (checked) "已开启读后即关 fd（大范围搜索会变慢）" else "已关闭读后即关 fd")
+                        }
+                    )
 
                     GgDivider()
 

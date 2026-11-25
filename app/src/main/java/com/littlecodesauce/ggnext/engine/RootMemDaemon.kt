@@ -41,6 +41,8 @@ object RootMemDaemon {
     private var lastAddrMax: Long = 0L
     private var lastAddrMask: Long = 0L
     private var lastAddrPattern: Long = 0L
+    private var lastStealthRotation: Boolean = true
+    private var lastStealthEphemeral: Boolean = false
     private var isRecovering: Boolean = false
 
     private val writeLock = Any()
@@ -487,6 +489,10 @@ object RootMemDaemon {
                     }
                     val uMask = lastRegionMask.toLong() and 0xFFFFFFFFL
                     sendRawLocked("SET_MASK $uMask", isScan = false)
+                    sendRawLocked(
+                        "SET_STEALTH ${if (lastStealthRotation) 1 else 0} ${if (lastStealthEphemeral) 1 else 0}",
+                        isScan = false
+                    )
                     if (lastAddrMin != 0L || lastAddrMax != 0L || lastAddrMask != 0L) {
                         val minH = java.lang.Long.toUnsignedString(lastAddrMin, 16)
                         val maxH = java.lang.Long.toUnsignedString(lastAddrMax, 16)
@@ -559,6 +565,18 @@ object RootMemDaemon {
         lastRegionMask = mask
         val uMask = mask.toLong() and 0xFFFFFFFFL
         val resp = sendCommandLocked("SET_MASK $uMask", isScan = false) ?: return false
+        return resp.startsWith("OK")
+    }
+
+    /** 配置用户态隐蔽读取（通道轮换 + 读后即关 fd）。守护进程重启后由 ensureRecoveredAndAttached 重新下发。 */
+    @Synchronized
+    fun setStealth(rotation: Boolean, ephemeralFd: Boolean): Boolean {
+        lastStealthRotation = rotation
+        lastStealthEphemeral = ephemeralFd
+        val resp = sendCommandLocked(
+            "SET_STEALTH ${if (rotation) 1 else 0} ${if (ephemeralFd) 1 else 0}",
+            isScan = false
+        ) ?: return false
         return resp.startsWith("OK")
     }
 

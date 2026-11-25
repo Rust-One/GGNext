@@ -45,6 +45,25 @@ public:
     bool hasPagemapResidency() const noexcept { return m_pagemapUsable.load(std::memory_order_relaxed); }
     uint64_t zeroPagePfn() const noexcept { return m_zeroPagePfn; }
 
+    // ------------------------------------------------------------------
+    // 用户态隐蔽读取增强 (Stealth Read)
+    // ------------------------------------------------------------------
+    // 通道轮换：在 process_vm_readv 与 /proc/pid/mem 之间轮换起始通道，
+    // 避免固定单一 syscall 被 hook / seccomp 监控时完全暴露。默认开启。
+    void setStealthRotation(bool enabled) noexcept;
+    bool stealthRotation() const noexcept;
+
+    // 即开即关 fd：读取时不复用长期打开的 /proc/pid/mem fd，读后立即关闭。
+    // 用于对抗"扫描本进程 fd 列表发现 /proc/<目标>/mem"的检测。
+    // 注意：每次 open/close 有开销，搜索大范围时保持关闭以获得吞吐。
+    void setEphemeralFd(bool enabled) noexcept;
+    bool ephemeralFd() const noexcept;
+
+    // 通道使用统计（供日志 / UI 展示）。
+    uint64_t readCountPvm() const noexcept;
+    uint64_t readCountMemfd() const noexcept;
+    uint64_t readCountFallback() const noexcept;
+
     // Standard single-range read/write:
     // - Read: process_vm_readv -> /proc/[pid]/mem pread64 fallback with EINTR retry
     // - Write: process_vm_writev -> /proc/[pid]/mem pwrite64 fallback (FOLL_FORCE for read-only/code pages)
@@ -94,7 +113,17 @@ private:
     mutable std::atomic<bool> m_pvmSupported{true};
     mutable std::atomic<bool> m_pagemapUsable{false};
 
+    // Stealth read state
+    mutable std::atomic<bool>   m_stealthRotation{true};
+    mutable std::atomic<bool>   m_ephemeralFd{false};
+    mutable std::atomic<uint64_t> m_readCountPvm{0};
+    mutable std::atomic<uint64_t> m_readCountMemfd{0};
+    mutable std::atomic<uint64_t> m_readCountFallback{0};
+    mutable std::atomic<uint32_t> m_readSequence{0};
+
     static EngineErrc mapErrnoToErrc(int err) noexcept;
+    // Ephemeral-fd read: opens/closes /proc/[pid]/mem around a single pread.
+    EngineErrc readViaEphemeralFd(uintptr_t addr, void* buf, size_t size, size_t* outBytesRead) const noexcept;
 };
 
 // ============================================================================

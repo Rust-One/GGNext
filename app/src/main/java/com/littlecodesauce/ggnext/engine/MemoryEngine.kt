@@ -431,6 +431,11 @@ class MemoryEngine {
         activeBackend?.setFreezeIntervalMs(intervalMs.coerceIn(5, 5000))
     }
 
+    /** 用户态隐蔽读取配置（通道轮换 + 读后即关 fd），对所有原生后端生效。 */
+    fun configureStealth(rotation: Boolean, ephemeralFd: Boolean) {
+        activeBackend?.configureStealth(rotation, ephemeralFd)
+    }
+
     /** 仅在未启用 C++ 原生锁值线程时作为纯 JVM 回退执行锁值写入 */
     fun tickFreeze(savedList: List<MemoryItem>): List<MemoryItem>? {
         if (!attachedOk || pid <= 0 || savedList.isEmpty()) return null

@@ -65,6 +65,12 @@ object SettingsSpecs {
         SettingSpec("autopause", "自动暂停游戏", SettingKeys.GROUP_GAME, SettingSpec.Kind.CHOICE, 0,
             listOf(0 to "否", 1 to "是")),
         SettingSpec("freeze_interval", "冻结间隔", SettingKeys.GROUP_GAME, SettingSpec.Kind.NUMBER, 33L, min = 5L, max = 500L),
+        SettingSpec("stealth_rotation", "隐蔽读取(通道轮换)", SettingKeys.GROUP_GAME, SettingSpec.Kind.CHOICE, 1,
+            listOf(0 to "关闭", 1 to "开启"),
+            help = "在 process_vm_readv 与 /proc/pid/mem 之间交替读取，降低反作弊对单一 syscalls 的检出率。默认开启。"),
+        SettingSpec("stealth_ephemeral_fd", "读后即关 fd", SettingKeys.GROUP_GAME, SettingSpec.Kind.CHOICE, 0,
+            listOf(0 to "关闭", 1 to "开启"),
+            help = "每次读取即开即关 /proc/pid/mem，对抗 fd 列表扫描检测；大范围搜索时会降低吞吐，按需开启。"),
         SettingSpec("speedhack_speeds", "变速倍率", SettingKeys.GROUP_GAME, SettingSpec.Kind.ACTION, 0)
     )
 

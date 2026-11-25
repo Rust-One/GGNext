@@ -210,6 +210,24 @@ int main(int argc, char** argv) {
                 std::printf("ERR %d\n", static_cast<int>(rc));
             }
             std::fflush(stdout);
+        } else if (cmd == "SET_STEALTH") {
+            // SET_STEALTH <rotation 0|1> <ephemeralFd 0|1>
+            // rotation: 在 process_vm_readv 与 /proc/pid/mem 之间交替起始通道
+            // ephemeralFd: /proc/pid/mem 读后即关，对抗 fd 列表扫描检测
+            int rotation = 1, ephemeral = 0;
+            iss >> rotation >> ephemeral;
+            io.setStealthRotation(rotation != 0);
+            io.setEphemeralFd(ephemeral != 0);
+            std::lock_guard<std::mutex> outLk(stdoutMutex);
+            std::printf("OK %d %d\n", rotation != 0 ? 1 : 0, ephemeral != 0 ? 1 : 0);
+            std::fflush(stdout);
+        } else if (cmd == "STEALTH_STATS") {
+            std::lock_guard<std::mutex> outLk(stdoutMutex);
+            std::printf("OK pvm=%llu memfd=%llu fb=%llu\n",
+                        (unsigned long long)io.readCountPvm(),
+                        (unsigned long long)io.readCountMemfd(),
+                        (unsigned long long)io.readCountFallback());
+            std::fflush(stdout);
         } else if (cmd == "SET_MASK") {
             uint32_t mask = 0;
             iss >> mask;

@@ -6,3 +6,15 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# 本地构建配置与签名私钥（绝不提交）
+local.properties
+keystore.properties
+*.jks
+*.keystore
+
+# 构建缓存
+.gradle/
+.kotlin/
+.cxx/
+app/.cxx/

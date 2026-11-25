@@ -354,6 +354,53 @@ void ProcIO::detach() noexcept {
     m_pid = -1;
 }
 
+void ProcIO::setStealthRotation(bool enabled) noexcept {
+    m_stealthRotation.store(enabled, std::memory_order_relaxed);
+}
+
+bool ProcIO::stealthRotation() const noexcept {
+    return m_stealthRotation.load(std::memory_order_relaxed);
+}
+
+void ProcIO::setEphemeralFd(bool enabled) noexcept {
+    m_ephemeralFd.store(enabled, std::memory_order_relaxed);
+}
+
+bool ProcIO::ephemeralFd() const noexcept {
+    return m_ephemeralFd.load(std::memory_order_relaxed);
+}
+
+uint64_t ProcIO::readCountPvm() const noexcept {
+    return m_readCountPvm.load(std::memory_order_relaxed);
+}
+
+uint64_t ProcIO::readCountMemfd() const noexcept {
+    return m_readCountMemfd.load(std::memory_order_relaxed);
+}
+
+uint64_t ProcIO::readCountFallback() const noexcept {
+    return m_readCountFallback.load(std::memory_order_relaxed);
+}
+
+EngineErrc ProcIO::readViaEphemeralFd(uintptr_t addr, void* buf, size_t size, size_t* outBytesRead) const noexcept {
+    char memPath[64];
+    std::snprintf(memPath, sizeof(memPath), "/proc/%d/mem", m_pid);
+    int fd = ::open(memPath, O_RDONLY | O_LARGEFILE | O_CLOEXEC);
+    if (fd < 0) return mapErrnoToErrc(errno);
+    ssize_t nread = KT_EINTR_RETRY(::pread64(fd, buf, size, static_cast<off64_t>(addr)));
+    int err = errno;
+    ::close(fd);
+    if (nread == static_cast<ssize_t>(size)) {
+        if (outBytesRead) *outBytesRead = static_cast<size_t>(nread);
+        return EngineErrc::OK;
+    }
+    if (nread > 0) {
+        if (outBytesRead) *outBytesRead = static_cast<size_t>(nread);
+        return EngineErrc::ERR_FAULT;
+    }
+    return mapErrnoToErrc(err);
+}
+
 EngineErrc ProcIO::readMemory(uintptr_t addr, void* buf, size_t size, size_t* outBytesRead) const noexcept {
     if (outBytesRead) *outBytesRead = 0;
     if (m_pid <= 0 || !buf) return EngineErrc::ERR_INVAL;
@@ -361,7 +408,14 @@ EngineErrc ProcIO::readMemory(uintptr_t addr, void* buf, size_t size, size_t* ou
     const uintptr_t effAddr = static_cast<uintptr_t>(ArchPtrPolicy::untag(addr, m_targetIs64Bit));
     if (effAddr + size < effAddr) return EngineErrc::ERR_INVAL;
 
-    if (m_pvmSupported.load(std::memory_order_relaxed)) {
+    const bool rotate = m_stealthRotation.load(std::memory_order_relaxed);
+    // 交替起始通道：偶数次先 PVM，奇数次先 /proc/pid/mem。
+    // 反作弊若只 hook 单一 syscall，轮换可显著降低每次读都被同一 hook 捕获的概率。
+    const bool pvmFirst = !rotate || ((m_readSequence.fetch_add(1, std::memory_order_relaxed) & 1u) == 0);
+
+    auto tryPvm = [&]() -> EngineErrc {
+        if (!m_pvmSupported.load(std::memory_order_relaxed)) return EngineErrc::ERR_INVAL;
+        m_readCountPvm.fetch_add(1, std::memory_order_relaxed);
         struct iovec localIov{buf, size};
         struct iovec remoteIov{reinterpret_cast<void*>(effAddr), size};
         ssize_t nread = KT_EINTR_RETRY(::process_vm_readv(m_pid, &localIov, 1, &remoteIov, 1, 0));
@@ -379,12 +433,16 @@ EngineErrc ProcIO::readMemory(uintptr_t addr, void* buf, size_t size, size_t* ou
         } else if (err == ESRCH) {
             return EngineErrc::ERR_SRCH;
         } else if (err == EPERM || err == EACCES) {
-            if (m_memFd < 0) return EngineErrc::ERR_PERM;
             m_pvmSupported.store(false, std::memory_order_relaxed);
         }
-    }
+        return mapErrnoToErrc(err);
+    };
 
-    if (m_memFd >= 0) {
+    auto tryMemfd = [&]() -> EngineErrc {
+        m_readCountMemfd.fetch_add(1, std::memory_order_relaxed);
+        if (m_ephemeralFd.load(std::memory_order_relaxed) || m_memFd < 0) {
+            return readViaEphemeralFd(effAddr, buf, size, outBytesRead);
+        }
         ssize_t nread = KT_EINTR_RETRY(::pread64(m_memFd, buf, size, static_cast<off64_t>(effAddr)));
         if (nread == static_cast<ssize_t>(size)) {
             if (outBytesRead) *outBytesRead = static_cast<size_t>(nread);
@@ -395,9 +453,20 @@ EngineErrc ProcIO::readMemory(uintptr_t addr, void* buf, size_t size, size_t* ou
             return EngineErrc::ERR_FAULT;
         }
         return mapErrnoToErrc(errno);
-    }
+    };
 
-    return EngineErrc::ERR_FAULT;
+    EngineErrc first  = pvmFirst ? tryPvm()  : tryMemfd();
+    if (first == EngineErrc::OK) return first;
+    // 目标进程消失是确定性错误，不做无谓重试
+    if (first == EngineErrc::ERR_SRCH) return first;
+
+    // 第一通道失败（含 PVM 被 hook 拦截的 EPERM/EACCES、EFAULT/ENOSYS 等），
+    // 切换到另一通道重试 —— 这正是"提升读取成功率"的核心。
+    m_readCountFallback.fetch_add(1, std::memory_order_relaxed);
+    EngineErrc second = pvmFirst ? tryMemfd() : tryPvm();
+    if (second == EngineErrc::OK) return second;
+    // 保留"部分读取"的结果：若第一次已写入部分字节且第二次完全失败，返回 ERR_FAULT 并保留计数
+    return second != EngineErrc::OK && second != EngineErrc::ERR_INVAL ? second : first;
 }
 
 EngineErrc ProcIO::writeMemory(uintptr_t addr, const void* buf, size_t size) const noexcept {

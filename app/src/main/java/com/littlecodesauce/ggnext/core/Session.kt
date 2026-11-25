@@ -482,6 +482,14 @@ object Session {
         return RegionCatalog.DEFAULT_SELECTED
     }
 
+    /** 将隐蔽读取配置下发到当前原生后端。通道轮换默认开、读后即关 fd 默认关（吞吐优先）。 */
+    private fun applyStealthFromSettings() {
+        val s = _ui.value.settings
+        val rotation = (s["stealth_rotation"] ?: "1") != "0"
+        val ephemeral = s["stealth_ephemeral_fd"] == "1"
+        engine.configureStealth(rotation, ephemeral)
+    }
+
     private fun enqueueSettingWrite(id: String, value: String, immediate: Boolean = false) {
         pendingSettingsBuffer[id] = value
         scheduleSettingsFlush(delayMs = if (immediate) 0L else 140L)
@@ -1213,6 +1221,9 @@ object Session {
                 history = if (id == "history_limit") historyStore.list() else st.history
             )
         }
+        if (id == "stealth_rotation" || id == "stealth_ephemeral_fd") {
+            applyStealthFromSettings()
+        }
     }
 
     fun resetAppSettings() {
@@ -1594,6 +1605,7 @@ object Session {
 
                 // 若持久化恢复的保存列表中存在已冻结项，重新附加后自动下发到底层 ValueLocker
                 if (ok) {
+                    applyStealthFromSettings()
                     val savedFrozen = _ui.value.saved.filter { it.freeze }
                     if (savedFrozen.isNotEmpty()) {
                         withContext(Dispatchers.IO) {
@@ -4080,6 +4092,7 @@ object Session {
                 context = appContext
             )
             if (ok) {
+                applyStealthFromSettings()
                 val freshRegions = engine.regions()
                 _ui.update { cur ->
                     cur.copy(

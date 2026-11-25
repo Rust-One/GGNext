@@ -155,6 +155,24 @@ object NativeMemBridge {
 
     fun currentHandle(): Long = sessionHandle
 
+    /** 配置用户态隐蔽读取：通道轮换 + 读后即关 fd。 */
+    fun setStealth(rotation: Boolean, ephemeralFd: Boolean) {
+        val h = sessionHandle
+        if (h != 0L && isLoaded) {
+            runCatching { nativeSetStealth(h, rotation, ephemeralFd) }
+        }
+    }
+
+    /** 返回 (pvm, memfd, fallback) 三通道读取次数。 */
+    fun stealthStats(): Triple<Long, Long, Long> {
+        val h = sessionHandle
+        if (h == 0L || !isLoaded) return Triple(0, 0, 0)
+        val packed = runCatching { nativeStealthStats(h) }.getOrDefault(0L)
+        if (packed == 0L) return Triple(0, 0, 0)
+        val mask = 0xFFFFFL
+        return Triple((packed shr 40) and mask, (packed shr 20) and mask, packed and mask)
+    }
+
     fun toNativeDataType(ggType: Int): Int = when (ggType and 0x7F) {
         ValueType.BYTE -> DT_INT8
         ValueType.WORD -> DT_INT16
@@ -209,6 +227,8 @@ object NativeMemBridge {
     @JvmStatic external fun nativeAttach(handle: Long, pid: Int): Int
     @JvmStatic external fun nativeIsProcessAlive(handle: Long): Boolean
     @JvmStatic external fun nativeSetRegionMask(handle: Long, regionMask: Int)
+    @JvmStatic external fun nativeSetStealth(handle: Long, rotation: Boolean, ephemeralFd: Boolean)
+    @JvmStatic external fun nativeStealthStats(handle: Long): Long
     @JvmStatic external fun nativeSetAddressFilter(handle: Long, minAddr: Long, maxAddr: Long, addrMask: Long, addrPattern: Long)
     @JvmStatic external fun nativeCancelScan(handle: Long)
     @JvmStatic external fun nativeGetRegionTotals(handle: Long, pid: Int): LongArray?

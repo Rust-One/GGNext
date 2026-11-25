@@ -64,6 +64,9 @@ interface MemoryBackend {
     fun unlockAddress(address: Long)
     fun unlockAll()
 
+    /** 用户态隐蔽读取配置：通道轮换 + 读后即关 fd（内核后端/纯 JVM 后端为 no-op）。 */
+    fun configureStealth(rotation: Boolean, ephemeralFd: Boolean) = Unit
+
     fun clearSession()
     fun removeCandidates(addresses: Collection<Long>)
 
@@ -286,6 +289,9 @@ class RootDaemonBackend : MemoryBackend {
     override fun setFreezeIntervalMs(intervalMs: Int) = RootMemDaemon.setFreezeIntervalMs(intervalMs)
     override fun unlockAddress(address: Long) = RootMemDaemon.unlockAddress(address)
     override fun unlockAll() = RootMemDaemon.unlockAll()
+    override fun configureStealth(rotation: Boolean, ephemeralFd: Boolean) {
+        RootMemDaemon.setStealth(rotation, ephemeralFd)
+    }
     override fun clearSession() = RootMemDaemon.clearSession()
 
     override fun removeCandidates(addresses: Collection<Long>) {
@@ -536,6 +542,10 @@ class JniBackend(
     override fun unlockAll() {
         val h = handle
         if (h != 0L) NativeMemBridge.nativeUnlockAll(h)
+    }
+
+    override fun configureStealth(rotation: Boolean, ephemeralFd: Boolean) {
+        NativeMemBridge.setStealth(rotation, ephemeralFd)
     }
 
     override fun clearSession() {
